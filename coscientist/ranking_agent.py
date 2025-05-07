@@ -18,14 +18,12 @@ against each other. New and top-ranked hypotheses are prioritized.
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 import math
+from tqdm import tqdm
 import re  # Add re for parsing
 import itertools  # Add itertools for combinations
 from typing import Dict, List, Tuple, Any, Set, Optional  # Add Optional
 
-# Assume Hypothesis is defined elsewhere, e.g., in types.py
-# from .types import Hypothesis
-# For now, we'll use a placeholder or basic structure
-from dataclasses import dataclass, field
+from coscientist.types import HypothesisWithID
 
 # Constants
 DEFAULT_ELO = 1200
@@ -83,10 +81,10 @@ Hypothesis 2:
 {hypothesis_2}
 
 Initial review of hypothesis 1:
-{review1}
+{review_1}
 
 Initial review of hypothesis 2:
-{review 2}
+{review_2}
 
 Debate procedure:
 
@@ -153,13 +151,6 @@ def update_elo(rating1: float, rating2: float, winner: int) -> tuple[float, floa
     return new_rating1, new_rating2
 
 
-@dataclass
-class HypothesisWithID:
-    id: int
-    content: str
-    review: str
-
-
 class EloTournament:
     """Manages a two-stage ELO ranking tournament for hypotheses."""
 
@@ -169,13 +160,13 @@ class EloTournament:
         goal: str,
         preferences: str,
         notes: str,
-        idea_attributes: str = "default",
+        idea_attributes: List[str] = [],
     ):
         self.llm = llm
         self.goal = goal
         self.preferences = preferences
         self.notes = notes
-        self.idea_attributes = idea_attributes  # For prompt formatting
+        self.idea_attributes = ", ".join(idea_attributes)
         self.hypotheses: Dict[str, HypothesisWithID] = {}  # id -> Hypothesis object
         self.ratings: Dict[str, float] = {}  # id -> ELO rating
         self.match_history: Dict[Tuple[int, int], Tuple[int, int]] = {}
@@ -231,15 +222,18 @@ class EloTournament:
             else getattr(response, "content", str(response))
         )
 
-        print(f"LLM Response for {hypo1.id} vs {hypo2.id}:\n{response_text}")
+        # print(f"LLM Response for {hypo1.id} vs {hypo2.id}:\n{response_text}")
 
         # Parse the response to find the winner
         # Look for "better idea: 1", "better idea: 2", "better hypothesis: 1", etc.
-        match = re.search(
-            r"better (?:idea|hypothesis):\s*([12])", response_text, re.IGNORECASE
+        # Also handles simple "<1>" or "<2>" responses.
+        winner_str = response_text.split(":")[-1]
+        print(f"Winner string: {winner_str}")
+        assert ("1" in winner_str) ^ ("2" in winner_str), (
+            f"Invalid winner string: {winner_str}"
         )
-        assert match is not None, f"No winner found for {hypo1.id} vs {hypo2.id}"
-        winner = int(match.group(1))
+        winner = 1 if "1" in winner_str else 2
+
         print(f"LLM determined winner: Hypothesis {winner}")
         return winner
 
@@ -256,8 +250,7 @@ class EloTournament:
             return
 
         # Use itertools.combinations to get unique pairs
-        for id1, id2 in itertools.combinations(hypo_ids, 2):
-            total_matches += 1
+        for id1, id2 in tqdm(list(itertools.combinations(hypo_ids, 2))):
             hypo1 = self.hypotheses[id1]
             hypo2 = self.hypotheses[id2]
             rating1 = self.ratings[id1]

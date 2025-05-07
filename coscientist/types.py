@@ -40,3 +40,11 @@ class GeneratedHypothesis(BaseModel):
 
     reasoning: str
     hypothesis: str
+
+
+class HypothesisWithID(BaseModel):
+    """A hypothesis with an ID."""
+
+    id: int
+    content: str
+    review: str

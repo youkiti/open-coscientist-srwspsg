@@ -204,6 +204,7 @@ def generate_hypothesis(
         additional_instructions=additional_instructions,
     )
     response_json_str = llm.invoke(prompt).content
+    response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
     try:
         data = json.loads(response_json_str)
         return GeneratedHypothesis(**data)
