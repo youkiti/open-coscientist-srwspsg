@@ -128,12 +128,18 @@ def update_elo(rating1: float, rating2: float, winner: int) -> tuple[float, floa
     """
     Updates the ELO ratings of two players based on the match outcome.
 
-    Args:
-        rating1: ELO rating of hypothesis 1.
-        rating2: ELO rating of hypothesis 2.
-        winner: 1 if hypothesis 1 won, 2 if hypothesis 2 won.
+    Parameters
+    ----------
+    rating1 : float
+        ELO rating of hypothesis 1.
+    rating2 : float
+        ELO rating of hypothesis 2.
+    winner : int
+        1 if hypothesis 1 won, 2 if hypothesis 2 won.
 
-    Returns:
+    Returns
+    -------
+    tuple of float
         A tuple containing the updated ELO ratings (new_rating1, new_rating2).
     """
     expected1, expected2 = calculate_expected_score(rating1, rating2)
@@ -194,7 +200,22 @@ class EloTournament:
     ) -> Optional[int]:
         """
         Uses the LLM with a specific prompt to determine the winner between two hypotheses.
-        Returns 1 if hypo1 wins, 2 if hypo2 wins, None if winner cannot be determined.
+
+        Parameters
+        ----------
+        hypo1 : HypothesisWithID
+            The first hypothesis.
+        hypo2 : HypothesisWithID
+            The second hypothesis.
+        prompt_template : str
+            The template for the prompt.
+        stage : int
+            The stage of the tournament.
+
+        Returns
+        -------
+        Optional[int]
+            1 if hypo1 wins, 2 if hypo2 wins, None if winner cannot be determined.
         """
         # Use PromptTemplate for safer formatting
         prompt_builder = PromptTemplate.from_template(prompt_template)
@@ -277,10 +298,14 @@ class EloTournament:
         Uses SIMULATED_DEBATE_PROMPT for matches.
         Does NOT update ELO ratings, only determines a winner.
 
-        Args:
-            k: The number of top hypotheses to include in the bracket (must be power of 2).
+        Parameters
+        ----------
+        k : int, optional
+            The number of top hypotheses to include in the bracket (must be power of 2).
 
-        Returns:
+        Returns
+        -------
+        Optional[str]
             The ID of the winning hypothesis, or None if the stage cannot run or fails.
         """
         stage = 2
@@ -339,10 +364,14 @@ class EloTournament:
         """
         Runs the full two-stage tournament.
 
-        Args:
-            k_bracket: The number of top hypotheses for the bracket stage.
+        Parameters
+        ----------
+        k_bracket : int, optional
+            The number of top hypotheses for the bracket stage.
 
-        Returns:
+        Returns
+        -------
+        Optional[str]
             The ID of the final winning hypothesis from the bracket stage, or None.
         """
         self.run_round_robin_stage()

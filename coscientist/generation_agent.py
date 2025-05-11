@@ -203,12 +203,13 @@ def generate_hypothesis(
         source_hypothesis=source_hypothesis,
         additional_instructions=additional_instructions,
     )
-    response_json_str = llm.invoke(prompt).content
+    response_json_str = llm.invoke(prompt).content.replace("\n", " ")
     response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
     try:
         data = json.loads(response_json_str)
         return GeneratedHypothesis(**data)
     except json.JSONDecodeError as e:
-        print(f"Error decoding JSON from LLM: {e}")
-        print(f"LLM Output was: {response_json_str}")
-        raise
+        # print(f"Error decoding JSON from LLM: {e}")
+        # print(f"LLM Output was: {response_json_str}")
+        # raise
+        return response_json_str
