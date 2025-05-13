@@ -23,7 +23,29 @@ action or experiment.
 recurring issues and opportunities for improvement.
 """
 
+from langchain.prompts import PromptTemplate
+from langchain_core.language_models.chat_models import BaseChatModel
+
 INITIAL_FILTER_PROMPT = """
+You are an expert in scientific hypothesis evaluation. Your task is to analyze a hypothesis
+and determine if it is correct, novel, and high-quality. 
+
+Instructions:
+
+1. Correctness: Assess if the hypothesis is consistent with your extensive knowledge of the field.
+Your primary concern is plausibility the hypothesis itself may be speculative and unproven.
+2. Novelty: Assess if the hypothesis is a meaningfully new idea.
+3. Quality: A high-quality hypothesis is well-motivated, clear, concise, and scientifically sound.
+It must also be testable and grounded in valid assumptions.
+
+Provide your reasoning for each of the three criteria, then conclude with an overall final evaluation
+of "pass" or "fail": Final evaluation: <pass or fail>. To pass, the hypothesis must receive a pass
+rating for each of the three criteria.
+
+Hypothesis:
+{hypothesis}
+
+Response:
 """
 
 DEEP_VERIFICATION_PROMPT = """
@@ -77,3 +99,47 @@ Hypothesis:
 Response {provide reasoning. end with: "hypothesis: <already explained, other explanations
 more likely, missing piece, neutral, or disproved>".)
 """
+
+
+def get_initial_filter_prompt(hypothesis: str) -> str:
+    """
+    Create a prompt for the initial hypothesis filter.
+
+    Parameters
+    ----------
+    hypothesis: str
+        The hypothesis to filter
+
+    Returns
+    -------
+    str
+        The prompt for the initial hypothesis filter
+    """
+    # Create the prompt template
+    prompt_template = PromptTemplate(
+        input_variables=["hypothesis"],
+        template=INITIAL_FILTER_PROMPT,
+    )
+
+    return prompt_template.format(hypothesis=hypothesis)
+
+
+def filter_hypothesis(llm: BaseChatModel, hypothesis: str) -> bool:
+    """
+    Filter a hypothesis using the initial filter prompt.
+
+    Parameters
+    ----------
+    llm: BaseChatModel
+        The LLM to use for filtering the hypothesis
+    hypothesis: str
+        The hypothesis to filter
+
+    Returns
+    -------
+    bool
+        True if the hypothesis is passed, False otherwise
+    """
+    formatted_prompt = get_initial_filter_prompt(hypothesis)
+    response = llm.invoke(formatted_prompt)
+    return "pass" in response.content.split("Final evaluation:")[-1].lower()

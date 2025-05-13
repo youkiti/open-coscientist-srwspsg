@@ -18,6 +18,11 @@ divergent from existing ones.
 that should in principle be better.
 """
 
+import json
+from langchain.prompts import PromptTemplate
+from langchain_core.language_models.chat_models import BaseChatModel
+from coscientist.types import ResearchPlanConfig, GeneratedHypothesis
+
 FEASIBILITY_PROMPT = """
 You are an expert in scientific research and technological feasibility analysis.
 Your task is to refine the provided conceptual idea, enhancing its practical implementability
@@ -40,8 +45,6 @@ Evaluation Criteria:
 
 Original Conceptualization:
 {hypothesis}
-
-Response:
 """
 
 OUT_OF_THE_BOX_PROMPT = """
@@ -64,6 +67,62 @@ Criteria for a robust hypothesis:
 Inspiration may be drawn from the following concepts (utilize analogy and inspiration,
 not direct replication):
 {hypotheses}
-
-Response:
 """
+
+
+def evolve_hypothesis(
+    llm: BaseChatModel,
+    goal: str,
+    research_plan_config: ResearchPlanConfig,
+    hypothesis: GeneratedHypothesis,
+) -> GeneratedHypothesis:
+    """
+    Refine a hypothesis for feasibility and practicality using the FEASIBILITY_PROMPT and an LLM.
+
+    Parameters
+    ----------
+    llm: BaseChatModel
+        The language model to use for hypothesis evolution
+    goal: str
+        The research goal
+    research_plan_config: ResearchPlanConfig
+        The research plan configuration (for preferences)
+    hypothesis: str
+        The hypothesis to refine (as a string)
+
+    Returns
+    -------
+    GeneratedHypothesis
+        The improved hypothesis and reasoning
+    """
+    prompt_template = PromptTemplate(
+        input_variables=["goal", "preferences", "hypothesis"],
+        template=FEASIBILITY_PROMPT,
+    )
+    prompt = prompt_template.format(
+        goal=goal,
+        preferences=research_plan_config.preferences,
+        hypothesis=hypothesis.hypothesis,
+    )
+
+    suffix = """
+    Return your output strictly in the following JSON format:
+    {
+        "reasoning": "<full detailed reasoning including analytical steps, literature synthesis, and logical progression>",
+        "hypothesis": "<fully refined hypothesis, stated in detail and tailored for domain experts>"
+    }
+
+    {
+        "reasoning": "
+    """
+
+    response_json_str = llm.invoke(prompt + suffix).content.replace("\n", " ")
+    response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
+    try:
+        data = json.loads(response_json_str)
+        return GeneratedHypothesis(**data)
+    except json.JSONDecodeError as e:
+        # print(f"Error decoding JSON from LLM: {e}")
+        # print(f"LLM Output was: {response_json_str}")
+        # raise
+        return response_json_str

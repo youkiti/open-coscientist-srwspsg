@@ -16,12 +16,20 @@ and feedback from the meta-review agent.
 
 """
 
+import json
+from langchain.prompts import PromptTemplate
+from langchain_core.language_models.chat_models import BaseChatModel
+
+from coscientist.types import LiteratureReview, ResearchPlanConfig, GeneratedHypothesis
+
 GENERATION_PROMPT = """
 You are an expert tasked with formulating a novel and robust hypothesis to address
 the following objective.
 
 Describe the proposed hypothesis in detail, including specific entities, mechanisms,
-and anticipated outcomes.
+and anticipated outcomes. The hypothesis must clearly link proposed causes and effects
+step-by-step, and make explicit and actionable predictions along the way.
+Be as specific as possible, eliminate vagueness and hand-waving ruthlessly. 
 
 This description is intended for an audience of domain experts.
 
@@ -43,8 +51,6 @@ Literature review and analytical rationale (chronologically ordered, beginning
 with the most recent analysis):
 
 {articles_with_reasoning}
-
-Proposed hypothesis (detailed description for domain experts):
 """
 
 DEBATE_PROMPT = """
@@ -96,3 +102,114 @@ thoroughly addressed and clarified, conclude the process by writing "HYPOTHESIS"
 
 Your Turn:
 """
+
+
+def get_generation_prompt(
+    goal: str,
+    literature_review: LiteratureReview,
+    research_plan_config: ResearchPlanConfig,
+    source_hypothesis: str = "",
+    additional_instructions: str = "",
+) -> str:
+    """
+    Generate a prompt for hypothesis generation based on literature review and research plan.
+
+    Parameters
+    ----------
+    goal: str
+        The research goal to address
+    literature_review: LiteratureReview
+        The literature review containing articles and reasoning
+    research_plan_config: ResearchPlanConfig
+        The research plan configuration
+    source_hypothesis: str
+        The source hypothesis to build upon
+    additional_instructions: str
+        Additional instructions to include in the prompt
+
+    Returns
+    -------
+    str
+        The formatted prompt for hypothesis generation
+    """
+    prompt_template = PromptTemplate(
+        input_variables=[
+            "goal",
+            "preferences",
+            "source_hypothesis",
+            "instructions",
+            "articles_with_reasoning",
+        ],
+        template=GENERATION_PROMPT,
+    )
+    suffix = """
+    Return your output strictly in the following JSON format:
+    {
+        "reasoning": "<full detailed reasoning including analytical steps, literature synthesis, and logical progression>",
+        "hypothesis": "<fully elaborated hypothesis, stated in detail and tailored for domain experts>"
+    }
+
+    {
+        "reasoning": "
+    """
+
+    return (
+        prompt_template.format(
+            goal=goal,
+            preferences=research_plan_config.preferences,
+            source_hypothesis=source_hypothesis,
+            instructions=additional_instructions,
+            articles_with_reasoning=literature_review.articles_with_reasoning,
+        )
+        + suffix
+    )
+
+
+def generate_hypothesis(
+    llm: BaseChatModel,
+    goal: str,
+    literature_review: LiteratureReview,
+    research_plan_config: ResearchPlanConfig,
+    source_hypothesis: str = "",
+    additional_instructions: str = "",
+) -> GeneratedHypothesis:
+    """
+    Generate a hypothesis using the literature review and research plan.
+
+    Parameters
+    ----------
+    llm: BaseChatModel
+        The language model to use for hypothesis generation
+    goal: str
+        The research goal to address
+    literature_review: LiteratureReview
+        The literature review containing articles and reasoning
+    research_plan_config: ResearchPlanConfig
+        The research plan configuration
+    source_hypothesis: str
+        The source hypothesis to build upon
+    additional_instructions: str
+        Additional instructions to include in the prompt
+
+    Returns
+    -------
+    str
+        The generated hypothesis
+    """
+    prompt = get_generation_prompt(
+        goal=goal,
+        literature_review=literature_review,
+        research_plan_config=research_plan_config,
+        source_hypothesis=source_hypothesis,
+        additional_instructions=additional_instructions,
+    )
+    response_json_str = llm.invoke(prompt).content.replace("\n", " ")
+    response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
+    try:
+        data = json.loads(response_json_str)
+        return GeneratedHypothesis(**data)
+    except json.JSONDecodeError as e:
+        # print(f"Error decoding JSON from LLM: {e}")
+        # print(f"LLM Output was: {response_json_str}")
+        # raise
+        return response_json_str
