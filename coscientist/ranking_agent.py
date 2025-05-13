@@ -21,6 +21,7 @@ import math
 from tqdm import tqdm
 import re  # Add re for parsing
 import itertools  # Add itertools for combinations
+from pydantic import BaseModel
 from typing import Dict, List, Tuple, Any, Set, Optional  # Add Optional
 
 from coscientist.types import HypothesisWithID
@@ -112,8 +113,10 @@ Termination and judgment:
 Once the discussion has reached a point of sufficient depth (typically 3-5 turns, up to 10 turns)
 and all relevant questions and concerns have been thoroughly addressed, provide a conclusive judgment.
 This judgment should succinctly state the rationale for the selection.
-Then, indicate the superior hypothesis by writing the phrase "better idea: ",
+Then, indicate the superior hypothesis by writing the phrase "better hypothesis: ",
 followed by "1" (for hypothesis 1) or "2" (for hypothesis 2).
+
+Debate:
 """
 
 
@@ -157,6 +160,15 @@ def update_elo(rating1: float, rating2: float, winner: int) -> tuple[float, floa
     return new_rating1, new_rating2
 
 
+class MatchResult(BaseModel):
+    """Result of a match between two hypotheses."""
+
+    id1: int
+    id2: int
+    winner: int
+    debate: str
+
+
 class EloTournament:
     """Manages a two-stage ELO ranking tournament for hypotheses."""
 
@@ -175,7 +187,7 @@ class EloTournament:
         self.idea_attributes = ", ".join(idea_attributes)
         self.hypotheses: Dict[str, HypothesisWithID] = {}  # id -> Hypothesis object
         self.ratings: Dict[str, float] = {}  # id -> ELO rating
-        self.match_history: Dict[Tuple[int, int], Tuple[int, int]] = {}
+        self.match_history: Dict[Tuple[int, int, int], MatchResult] = {}
 
     def add_hypothesis(
         self, hypothesis: HypothesisWithID, initial_rating: float = DEFAULT_ELO
@@ -196,8 +208,7 @@ class EloTournament:
         hypo1: HypothesisWithID,
         hypo2: HypothesisWithID,
         prompt_template: str,
-        stage: int,
-    ) -> Optional[int]:
+    ) -> Tuple[int, str]:
         """
         Uses the LLM with a specific prompt to determine the winner between two hypotheses.
 
@@ -209,13 +220,12 @@ class EloTournament:
             The second hypothesis.
         prompt_template : str
             The template for the prompt.
-        stage : int
-            The stage of the tournament.
 
         Returns
         -------
-        Optional[int]
-            1 if hypo1 wins, 2 if hypo2 wins, None if winner cannot be determined.
+        Tuple[int, str]
+            - 1 if hypo1 wins, 2 if hypo2 wins, None if winner cannot be determined.
+            - The response text from the LLM.
         """
         # Use PromptTemplate for safer formatting
         prompt_builder = PromptTemplate.from_template(prompt_template)
@@ -243,20 +253,16 @@ class EloTournament:
             else getattr(response, "content", str(response))
         )
 
-        # print(f"LLM Response for {hypo1.id} vs {hypo2.id}:\n{response_text}")
-
         # Parse the response to find the winner
         # Look for "better idea: 1", "better idea: 2", "better hypothesis: 1", etc.
         # Also handles simple "<1>" or "<2>" responses.
         winner_str = response_text.split(":")[-1]
-        print(f"Winner string: {winner_str}")
         assert ("1" in winner_str) ^ ("2" in winner_str), (
             f"Invalid winner string: {winner_str}"
         )
         winner = 1 if "1" in winner_str else 2
 
-        print(f"LLM determined winner: Hypothesis {winner}")
-        return winner
+        return winner, response_text
 
     def run_round_robin_stage(self):
         """
@@ -277,16 +283,16 @@ class EloTournament:
             rating1 = self.ratings[id1]
             rating2 = self.ratings[id2]
 
-            pair = tuple(sorted((id1, id2)))
-            previous_outcome = self.match_history.get(pair, (None, None))
-            if previous_outcome[1] != stage:
+            pair = tuple(sorted((id1, id2))) + (stage,)
+            previous_outcome = self.match_history.get(pair, None)
+            if previous_outcome is None:
                 # If no history, run the match
-                winner = self._determine_winner(
-                    hypo1, hypo2, TOURNAMENT_PROMPT, stage=stage
-                )
+                winner, debate = self._determine_winner(hypo1, hypo2, TOURNAMENT_PROMPT)
 
                 winner_id = id1 if winner == 1 else id2
-                self.match_history[pair] = (winner_id, stage)
+                self.match_history[pair] = MatchResult(
+                    id1=id1, id2=id2, winner=winner, debate=debate
+                )
                 new_rating1, new_rating2 = update_elo(rating1, rating2, winner)
 
                 self.ratings[id1] = new_rating1
@@ -338,16 +344,18 @@ class EloTournament:
                 rating1 = self.ratings[id1]
                 rating2 = self.ratings[id2]
 
-                pair = tuple(sorted((id1, id2)))
-                winner_id, previous_stage = self.match_history.get(pair, (None, None))
-                if previous_stage != stage:
+                pair = tuple(sorted((id1, id2))) + (stage,)
+                previous_outcome = self.match_history.get(pair, None)
+                if previous_outcome is None:
                     # Pair hasn't played, run the LLM
-                    winner = self._determine_winner(
-                        hypo1, hypo2, SIMULATED_DEBATE_PROMPT, stage=stage
+                    winner, debate = self._determine_winner(
+                        hypo1, hypo2, SIMULATED_DEBATE_PROMPT
                     )
 
                     winner_id = id1 if winner == 1 else id2
-                    self.match_history[pair] = (winner_id, stage)
+                    self.match_history[pair] = MatchResult(
+                        id1=id1, id2=id2, winner=winner, debate=debate
+                    )
                     new_rating1, new_rating2 = update_elo(rating1, rating2, winner)
                     self.ratings[id1] = new_rating1
                     self.ratings[id2] = new_rating2
@@ -381,3 +389,28 @@ class EloTournament:
             print(f"{i + 1}. {h_id}: {rating:.2f}")
 
         self.run_bracket_stage(k=k_bracket)
+
+    def get_win_loss_records(self) -> Dict[str, Dict[str, int]]:
+        """
+        Returns a dictionary containing win-loss records for each hypothesis.
+
+        Returns
+        -------
+        Dict[str, Dict[str, int]]
+            A dictionary where each key is a hypothesis ID and the value is another dictionary
+            containing 'wins' and 'losses' counts.
+        """
+        records = {h_id: {"wins": 0, "losses": 0} for h_id in self.hypotheses.keys()}
+
+        for match_result in self.match_history.values():
+            winner_id = (
+                match_result.id1 if match_result.winner == 1 else match_result.id2
+            )
+            loser_id = (
+                match_result.id2 if match_result.winner == 1 else match_result.id1
+            )
+
+            records[winner_id]["wins"] += 1
+            records[loser_id]["losses"] += 1
+
+        return records

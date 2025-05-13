@@ -43,10 +43,13 @@ class ProximityGraph:
         embeddings_x = [self.graph.nodes[id]["embedding"] for id in hypothesis_ids_x]
         embeddings_y = [self.graph.nodes[id]["embedding"] for id in hypothesis_ids_y]
         similarities = cosine_similarity(embeddings_x, embeddings_y)
+        print(f"Similarities: {similarities}")
         # return similarities
         # Add the edges with weights to the graph
         for i, id_x in enumerate(hypothesis_ids_x):
             for j, id_y in enumerate(hypothesis_ids_y):
+                if id_x == id_y:
+                    continue
                 self.graph.add_edge(id_x, id_y, weight=similarities[i, j])
 
     def update_edges(self):

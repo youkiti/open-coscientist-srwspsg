@@ -21,7 +21,12 @@ to the following topic:
 {topic}
 
 Before writing the actual review, create a detailed plan of topics to cover. Then
-systematically write the review, one section at a time.
+systematically write the review.
+
+The review is to be a complete, long-form article with multiple sections (e.g., Introduction, 
+Background, Recent Advances, Challenges, Future Directions, Conclusion).
+
+Review:
 """
 
 
