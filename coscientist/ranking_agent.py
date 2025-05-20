@@ -15,16 +15,17 @@ of the winning hypothesis.
 against each other. New and top-ranked hypotheses are prioritized.
 """
 
+import itertools  # Add itertools for combinations
+import math
+import re  # Add re for parsing
+from typing import Any, Dict, List, Optional, Set, Tuple  # Add Optional
+
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
-import math
-from tqdm import tqdm
-import re  # Add re for parsing
-import itertools  # Add itertools for combinations
 from pydantic import BaseModel
-from typing import Dict, List, Tuple, Any, Set, Optional  # Add Optional
+from tqdm import tqdm
 
-from coscientist.types import HypothesisWithID
+from coscientist.custom_types import HypothesisWithID
 
 # Constants
 DEFAULT_ELO = 1200

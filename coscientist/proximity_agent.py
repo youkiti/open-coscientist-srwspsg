@@ -6,15 +6,14 @@ Proximity agent
 
 from typing import List, Set
 
-import numpy as np
 import networkx as nx
+import numpy as np
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
-
-from sklearn.metrics.pairwise import cosine_similarity
 from langchain_openai import OpenAIEmbeddings
+from sklearn.metrics.pairwise import cosine_similarity
 
-from coscientist.types import HypothesisWithID
+from coscientist.custom_types import HypothesisWithID
 
 
 def create_embedding(text: str, dimensions: int = 256) -> np.ndarray:

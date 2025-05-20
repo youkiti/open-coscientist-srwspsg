@@ -17,199 +17,283 @@ and feedback from the meta-review agent.
 """
 
 import json
+import os
+from typing import List, Tuple, TypedDict
+
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from langchain.chat_models import init_chat_model
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.graph import END, StateGraph
 
-from coscientist.types import LiteratureReview, ResearchPlanConfig, GeneratedHypothesis
+from coscientist.custom_types import (
+    GeneratedHypothesis,
+    LiteratureReview,
+    ResearchPlanConfig,
+)
+from coscientist.reasoning_types import ReasoningType
 
-GENERATION_PROMPT = """
-You are an expert tasked with formulating a novel and robust hypothesis to address
-the following objective.
-
-Describe the proposed hypothesis in detail, including specific entities, mechanisms,
-and anticipated outcomes. The hypothesis must clearly link proposed causes and effects
-step-by-step, and make explicit and actionable predictions along the way.
-Be as specific as possible, eliminate vagueness and hand-waving ruthlessly. 
-
-This description is intended for an audience of domain experts.
-
-You have conducted a thorough review of relevant literature and developed a logical framework
-for addressing the objective. The articles consulted, along with your analytical reasoning,
-are provided below.
-
-Goal: {goal}
-
-Criteria for a strong hypothesis:
-{preferences}
-
-Existing hypothesis (if applicable):
-{source_hypothesis}
-
-{instructions}
-
-Literature review and analytical rationale (chronologically ordered, beginning
-with the most recent analysis):
-
-{articles_with_reasoning}
-"""
-
-DEBATE_PROMPT = """
-You are an expert participating in a collaborative discourse concerning the generation
-of a {idea_attributes} hypothesis. You will engage in a simulated discussion with other experts.
-The overarching objective of this discourse is to collaboratively develop a novel
-and robust {idea_attributes} hypothesis.
-
-Goal: {goal}
-
-Criteria for a high-quality hypothesis:
-{preferences}
-
-Instructions:
-{instructions}
-
-Review Overview:
-{reviews_overview}
-
-Procedure:
-
-Initial contribution (if initiating the discussion):
-Propose three distinct {idea_attributes} hypotheses.
-
-Subsequent contributions (continuing the discussion):
-* Pose clarifying questions if ambiguities or uncertainties arise.
-* Critically evaluate the hypotheses proposed thus far, addressing the following aspects:
-- Adherence to {idea_attributes} criteria.
-- Utility and practicality.
-- Level of detail and specificity.
-* Identify any weaknesses or potential limitations.
-* Propose concrete improvements and refinements to address identified weaknesses.
-* Conclude your response with a refined iteration of the hypothesis.
-
-General guidelines:
-* Exhibit boldness and creativity in your contributions.
-* Maintain a helpful and collaborative approach.
-* Prioritize the generation of a high-quality {idea_attributes} hypothesis.
-
-Termination condition:
-When sufficient discussion has transpired (typically 3-5 conversational turns,
-with a maximum of 10 turns) and all relevant questions and points have been
-thoroughly addressed and clarified, conclude the process by writing "HYPOTHESIS"
-(in all capital letters) followed by a concise and self-contained exposition of the finalized idea.
-
-#BEGIN TRANSCRIPT#
-{transcript}
-#END TRANSCRIPT#
-
-Your Turn:
-"""
+_env = Environment(
+    loader=FileSystemLoader(os.path.join(os.path.dirname(__file__), "prompts")),
+    autoescape=select_autoescape(),
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
 
 
-def get_generation_prompt(
-    goal: str,
-    literature_review: LiteratureReview,
-    research_plan_config: ResearchPlanConfig,
-    source_hypothesis: str = "",
-    additional_instructions: str = "",
-) -> str:
+class IndependentState(TypedDict):
+    goal: str
+    literature_review: str
+    hypothesis: str
+
+
+class CollaborativeState(TypedDict):
     """
-    Generate a prompt for hypothesis generation based on literature review and research plan.
+    Represents the state of the debate.
 
     Parameters
     ----------
     goal: str
-        The research goal to address
-    literature_review: LiteratureReview
-        The literature review containing articles and reasoning
-    research_plan_config: ResearchPlanConfig
-        The research plan configuration
-    source_hypothesis: str
-        The source hypothesis to build upon
-    additional_instructions: str
-        Additional instructions to include in the prompt
+        The main objective or topic of the debate.
+    literature_review: str
+        A summary of relevant background information or literature.
+    transcript: List[Tuple[str, str]]
+        List of (agent_name, message) tuples representing the conversation history.
+    turn: int
+        The current turn number in the debate.
+    next_agent: str
+        The name of the agent who will speak next.
+    finished: bool
+        Flag indicating whether the debate has concluded.
+    """
+
+    goal: str
+    literature_review: str
+    transcript: List[Tuple[str, str]]  # List of (agent_name, message) tuples
+    turn: int
+    next_agent: str
+    finished: bool
+
+
+def independent_generation_node(
+    state: IndependentState,
+    field: str,
+    reasoning_type: ReasoningType,
+    llm: BaseChatModel,
+) -> IndependentState:
+    """
+    Represents the action of a single generation agent using the independent_generation.md template.
+    The output is expected to be markdown with sections: Evidence, Hypothesis, Reasoning, Assumptions Table.
+    """
+    template = _env.get_template("independent_generation.md")
+    prompt = template.render(
+        goal=state["goal"],
+        field=field,
+        literature_review=state["literature_review"],
+        reasoning_type=reasoning_type.value,
+    )
+    response_content = llm.invoke(prompt).content
+    return {**state, "hypothesis": response_content}
+
+
+def debater_node(
+    state: CollaborativeState,
+    field: str,
+    reasoning_type: ReasoningType,
+    llm: BaseChatModel,
+) -> CollaborativeState:
+    """
+    Represents the action of a debater agent in the debate.
+
+    This function generates a new message based on the current debate transcript and updates
+    the debate state with the new message.
+
+    Parameters
+    ----------
+    state : CollaborativeState
+        The current state of the debate.
+    field : str
+        The field or domain of expertise of the debater.
+    reasoning_type : ReasoningType
+        The type of reasoning the debater should employ.
+    llm : BaseChatModel
+        The language model to use for generating responses.
 
     Returns
     -------
-    str
-        The formatted prompt for hypothesis generation
+    CollaborativeState
+        The updated debate state with the new message added to the transcript.
     """
-    prompt_template = PromptTemplate(
-        input_variables=[
-            "goal",
-            "preferences",
-            "source_hypothesis",
-            "instructions",
-            "articles_with_reasoning",
-        ],
-        template=GENERATION_PROMPT,
+    current_transcript_str = "\n".join(
+        [f"{name}: {msg}" for name, msg in state["transcript"]]
     )
-    suffix = """
-    Return your output strictly in the following JSON format:
-    {
-        "reasoning": "<full detailed reasoning including analytical steps, literature synthesis, and logical progression>",
-        "hypothesis": "<fully elaborated hypothesis, stated in detail and tailored for domain experts>"
+    template = _env.get_template("collaborative_generation.md")
+
+    prompt = template.render(
+        goal=state["goal"],
+        field=field,
+        literature_review=state["literature_review"],
+        reasoning_type=reasoning_type.value,
+        transcript=current_transcript_str,
+    )
+    response_content = llm.invoke(prompt).content
+
+    new_transcript = state["transcript"] + [(field, response_content)]
+
+    return {**state, "transcript": new_transcript}
+
+
+def moderator_node(
+    state: CollaborativeState, agent_names: List[str], max_turns: int = 10
+) -> CollaborativeState:
+    """
+    Controls the debate flow and manages turn order between agents.
+
+    This function determines the next agent to speak, checks for termination conditions,
+    and updates the debate state accordingly.
+
+    Parameters
+    ----------
+    state : CollaborativeState
+        The current state of the debate.
+    agent_names : List[str]
+        List of names of all participating agents.
+    max_turns : int, optional
+        Maximum number of turns allowed in the debate, by default 10.
+
+    Returns
+    -------
+    CollaborativeState
+        The updated debate state with new turn information and next agent assignment.
+    """
+    last_message = state["transcript"][-1][1] if state["transcript"] else ""
+
+    if "HYPOTHESIS" in last_message or state["turn"] >= max_turns:
+        return {**state, "finished": True, "next_agent": ""}
+
+    # Simple round-robin for now
+    current_agent_index = agent_names.index(state["next_agent"])
+    next_agent_index = (current_agent_index + 1) % len(agent_names)
+
+    return {
+        **state,
+        "finished": False,
+        "next_agent": agent_names[next_agent_index],
+        "turn": state["turn"] + 1,
     }
 
-    {
-        "reasoning": "
+
+def build_independent_generation_agent(
+    field: str, reasoning_type: ReasoningType, llm: BaseChatModel
+):
     """
-
-    return (
-        prompt_template.format(
-            goal=goal,
-            preferences=research_plan_config.preferences,
-            source_hypothesis=source_hypothesis,
-            instructions=additional_instructions,
-            articles_with_reasoning=literature_review.articles_with_reasoning,
-        )
-        + suffix
-    )
-
-
-def generate_hypothesis(
-    llm: BaseChatModel,
-    goal: str,
-    literature_review: LiteratureReview,
-    research_plan_config: ResearchPlanConfig,
-    source_hypothesis: str = "",
-    additional_instructions: str = "",
-) -> GeneratedHypothesis:
-    """
-    Generate a hypothesis using the literature review and research plan.
+    Builds and configures a LangGraph for a single-agent generation process using the independent_generation.md template.
+    The agent's output is markdown with sections: Evidence, Hypothesis, Reasoning, Assumptions Table.
 
     Parameters
     ----------
-    llm: BaseChatModel
-        The language model to use for hypothesis generation
-    goal: str
-        The research goal to address
-    literature_review: LiteratureReview
-        The literature review containing articles and reasoning
-    research_plan_config: ResearchPlanConfig
-        The research plan configuration
-    source_hypothesis: str
-        The source hypothesis to build upon
-    additional_instructions: str
-        Additional instructions to include in the prompt
+    agent_name : str
+        Name of the agent.
+    field : str
+        Field or domain of expertise.
+    reasoning_type : ReasoningType
+        Reasoning type for the agent.
+    llm : BaseChatModel
+        The language model to use.
 
     Returns
     -------
-    str
-        The generated hypothesis
+    StateGraph
+        A compiled LangGraph for the generation agent.
     """
-    prompt = get_generation_prompt(
-        goal=goal,
-        literature_review=literature_review,
-        research_plan_config=research_plan_config,
-        source_hypothesis=source_hypothesis,
-        additional_instructions=additional_instructions,
+    graph = StateGraph(IndependentState)
+    graph.add_node(
+        "generator",
+        lambda state: independent_generation_node(state, field, reasoning_type, llm),
     )
-    response_json_str = llm.invoke(prompt).content.replace("\n", " ")
-    response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
-    try:
-        data = json.loads(response_json_str)
-        return GeneratedHypothesis(**data)
-    except json.JSONDecodeError as e:
-        # print(f"Error decoding JSON from LLM: {e}")
-        # print(f"LLM Output was: {response_json_str}")
-        # raise
-        return response_json_str
+    graph.add_edge("generator", END)
+
+    graph.set_entry_point("generator")
+    return graph.compile()
+
+
+def build_collaborative_generation_agent(
+    agent_names: List[str],
+    agent_fields: dict[str, str],
+    agent_reasoning_types: dict[str, ReasoningType],
+    llms: dict[str, BaseChatModel],
+    max_turns: int = 10,
+):
+    """
+    Builds and configures the LangGraph for the multi-agent debate system.
+
+    This function creates a directed graph where nodes represent agents and the moderator,
+    and edges define the flow of conversation between them.
+
+    Parameters
+    ----------
+    agent_names : List[str]
+        List of names of all participating agents.
+    agent_fields : dict[str, str]
+        Dictionary mapping agent names to their fields of expertise.
+    agent_reasoning_types : dict[str, ReasoningType]
+        Dictionary mapping agent names to their reasoning types.
+    llms : dict[str, BaseChatModel]
+        Dictionary mapping agent names to their respective language models.
+    max_turns : int, optional
+        Maximum number of turns allowed in the debate, by default 10.
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph representing the debate system.
+
+    Raises
+    ------
+    ValueError
+        If the agent_names list is empty.
+    """
+    graph = StateGraph(CollaborativeState)
+
+    # Add debater nodes
+    for name in agent_names:
+        # Ensure the lambda correctly captures the 'name' for each node
+        graph.add_node(
+            name,
+            lambda state, agent_name=name: debater_node(
+                state,
+                agent_fields[agent_name],
+                agent_reasoning_types[agent_name],
+                llms[agent_name],
+            ),
+        )
+
+    # Add moderator node
+    graph.add_node(
+        "moderator", lambda state: moderator_node(state, agent_names, max_turns)
+    )
+
+    # Define transitions: After each debater, go to moderator
+    for name in agent_names:
+        graph.add_edge(name, "moderator")
+
+    # Conditional edges from moderator
+    def route_after_moderator(state: CollaborativeState):
+        if state["finished"]:
+            return END
+        return state["next_agent"]
+
+    graph.add_conditional_edges(
+        "moderator",
+        route_after_moderator,
+        # Provide a mapping from the output of route_after_moderator to node names
+        {name: name for name in agent_names + [END]},
+    )
+
+    # Set entry point
+    if not agent_names:
+        raise ValueError("Agent names list cannot be empty.")
+
+    graph.set_entry_point(agent_names[0])
+
+    return graph.compile()

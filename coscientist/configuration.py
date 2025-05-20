@@ -8,8 +8,7 @@ executed by the Supervisor.
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from coscientist.types import ResearchPlanConfig
-
+from coscientist.custom_types import ResearchPlanConfig
 
 _PROMPT = """
 You are an expert in scientific research planning. Given a goal from

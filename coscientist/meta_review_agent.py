@@ -21,11 +21,12 @@ that are relevant to the research plan.
 """
 
 from typing import List
+
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
-from coscientist.ranking_agent import EloTournament
 
-from coscientist.types import LiteratureReview, ResearchPlanConfig
+from coscientist.custom_types import LiteratureReview, ResearchPlanConfig
+from coscientist.ranking_agent import EloTournament
 
 REVIEW_GENERATION_PROMPT = """
 You are an expert in scientific research and meta-analysis.

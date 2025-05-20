@@ -19,9 +19,11 @@ that should in principle be better.
 """
 
 import json
+
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
-from coscientist.types import ResearchPlanConfig, GeneratedHypothesis
+
+from coscientist.custom_types import GeneratedHypothesis, ResearchPlanConfig
 
 FEASIBILITY_PROMPT = """
 You are an expert in scientific research and technological feasibility analysis.
