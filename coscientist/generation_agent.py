@@ -20,25 +20,18 @@ import json
 import os
 from typing import List, Tuple, TypedDict
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 from langchain.chat_models import init_chat_model
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
+from coscientist.common import load_prompt
 from coscientist.custom_types import (
     GeneratedHypothesis,
     LiteratureReview,
     ResearchPlanConfig,
 )
 from coscientist.reasoning_types import ReasoningType
-
-_env = Environment(
-    loader=FileSystemLoader(os.path.join(os.path.dirname(__file__), "prompts")),
-    autoescape=select_autoescape(),
-    trim_blocks=True,
-    lstrip_blocks=True,
-)
 
 
 class IndependentState(TypedDict):
@@ -85,8 +78,8 @@ def independent_generation_node(
     Represents the action of a single generation agent using the independent_generation.md template.
     The output is expected to be markdown with sections: Evidence, Hypothesis, Reasoning, Assumptions Table.
     """
-    template = _env.get_template("independent_generation.md")
-    prompt = template.render(
+    prompt = load_prompt(
+        "independent_generation",
         goal=state["goal"],
         field=field,
         literature_review=state["literature_review"],
@@ -127,9 +120,8 @@ def debater_node(
     current_transcript_str = "\n".join(
         [f"{name}: {msg}" for name, msg in state["transcript"]]
     )
-    template = _env.get_template("collaborative_generation.md")
-
-    prompt = template.render(
+    prompt = load_prompt(
+        "collaborative_generation",
         goal=state["goal"],
         field=field,
         literature_review=state["literature_review"],
@@ -137,7 +129,6 @@ def debater_node(
         transcript=current_transcript_str,
     )
     response_content = llm.invoke(prompt).content
-
     new_transcript = state["transcript"] + [(field, response_content)]
 
     return {**state, "transcript": new_transcript}

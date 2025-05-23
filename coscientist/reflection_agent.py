@@ -23,123 +23,128 @@ action or experiment.
 recurring issues and opportunities for improvement.
 """
 
+from typing import TypedDict
+
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.graph import END, StateGraph
 
-INITIAL_FILTER_PROMPT = """
-You are an expert in scientific hypothesis evaluation. Your task is to analyze a hypothesis
-and determine if it is correct, novel, and high-quality. 
-
-Instructions:
-
-1. Correctness: Assess if the hypothesis is consistent with your extensive knowledge of the field.
-Your primary concern is plausibility the hypothesis itself may be speculative and unproven.
-2. Novelty: Assess if the hypothesis is a meaningfully new idea.
-3. Quality: A high-quality hypothesis is well-motivated, clear, concise, and scientifically sound.
-It must also be testable and grounded in valid assumptions.
-
-Provide your reasoning for each of the three criteria, then conclude with an overall final evaluation
-of "pass" or "fail": Final evaluation: <pass or fail>. To pass, the hypothesis must receive a pass
-rating for each of the three criteria.
-
-Hypothesis:
-{hypothesis}
-
-Response:
-"""
-
-DEEP_VERIFICATION_PROMPT = """
-"""
-
-SIMULATION_PROMPT = """
-"""
-
-TOURNAMENT_REVIEW_PROMPT = """
-"""
-
-OBSERVATION_PROMPT = """
-You are an expert in scientific hypothesis evaluation. Your task is to analyze the
-relationship between a provided hypothesis and observations from a scientific article.
-Specifically, determine if the hypothesis provides a novel causal explanation
-for the observations, or if they contradict it.
-
-Instructions:
-
-1. Observation extraction: list relevant observations from the article.
-2. Causal analysis (individual): for each observation:
-a. State if its cause is already established.
-b. Assess if the hypothesis could be a causal factor (hypothesis => observation).
-c. Start with: "would we see this observation if the hypothesis was true:".
-d. Explain if it’s a novel explanation. If not, or if a better explanation exists,
-state: "not a missing piece."
-3. Causal analysis (summary): determine if the hypothesis offers a novel explanation
-for a subset of observations. Include reasoning. Start with: "would we see some of
-the observations if the hypothesis was true:".
-4. Disproof analysis: determine if any observations contradict the hypothesis.
-Start with: "does some observations disprove the hypothesis:".
-5. Conclusion: state: "hypothesis: <already explained, other explanations more likely,
-missing piece, neutral, or disproved>".
-
-Scoring:
-* Already explained: hypothesis consistent, but causes are known. No novel explanation.
-* Other explanations more likely: hypothesis *could* explain, but better explanations exist.
-* Missing piece: hypothesis offers a novel, plausible explanation.
-* Neutral: hypothesis neither explains nor is contradicted.
-* Disproved: observations contradict the hypothesis.
-
-Important: if observations are expected regardless of the hypothesis, and don’t disprove it,
-it’s neutral.
-
-Article:
-{article}
-
-Hypothesis:
-{hypothesis}
-
-Response {provide reasoning. end with: "hypothesis: <already explained, other explanations
-more likely, missing piece, neutral, or disproved>".)
-"""
+from coscientist.common import load_prompt
 
 
-def get_initial_filter_prompt(hypothesis: str) -> str:
+class ReflectionState(TypedDict):
     """
-    Create a prompt for the initial hypothesis filter.
+    Represents the state of the reflection process.
 
     Parameters
     ----------
     hypothesis: str
-        The hypothesis to filter
+        The hypothesis being evaluated
+    passed_initial_filter: bool
+        Whether the hypothesis passed the initial desk rejection filter
+    verification_result: str
+        The result of the deep verification process
+    """
+
+    hypothesis: str
+    initial_filter_assessment: str
+    passed_initial_filter: bool
+    verification_result: str
+
+
+def desk_reject_node(state: ReflectionState, llm: BaseChatModel) -> ReflectionState:
+    """
+    Evaluates a hypothesis using the desk_reject.md prompt to determine if it
+    should proceed for deeper analysis.
+
+    Parameters
+    ----------
+    state: ReflectionState
+        The current state of the reflection process
+    llm: BaseChatModel
+        The language model to use for evaluation
 
     Returns
     -------
-    str
-        The prompt for the initial hypothesis filter
+    ReflectionState
+        Updated state with the passed_initial_filter field updated
     """
-    # Create the prompt template
-    prompt_template = PromptTemplate(
-        input_variables=["hypothesis"],
-        template=INITIAL_FILTER_PROMPT,
-    )
+    prompt = load_prompt("desk_reject", hypothesis=state["hypothesis"])
+    response = llm.invoke(prompt)
+    passed = "pass" in response.content.split("FINAL EVALUATION:")[-1].lower()
 
-    return prompt_template.format(hypothesis=hypothesis)
+    return {
+        **state,
+        "passed_initial_filter": passed,
+        "initial_filter_assessment": response.content,
+    }
 
 
-def filter_hypothesis(llm: BaseChatModel, hypothesis: str) -> bool:
+def deep_verification_node(
+    state: ReflectionState, llm: BaseChatModel
+) -> ReflectionState:
     """
-    Filter a hypothesis using the initial filter prompt.
+    Performs deep verification of a hypothesis using the deep_verification.md prompt.
+
+    Parameters
+    ----------
+    state: ReflectionState
+        The current state of the reflection process
+    llm: BaseChatModel
+        The language model to use for verification
+
+    Returns
+    -------
+    ReflectionState
+        Updated state with the verification_result field populated
+    """
+    prompt = load_prompt("deep_verification", hypothesis=state["hypothesis"])
+    response = llm.invoke(prompt)
+
+    return {**state, "verification_result": response.content}
+
+
+def build_reflection_agent(llm: BaseChatModel):
+    """
+    Builds and configures a LangGraph for the reflection agent process.
+
+    The graph has two nodes:
+    1. desk_reject: Evaluates if a hypothesis is worth deeper analysis
+    2. deep_verification: Performs detailed verification of hypotheses that pass initial filtering
 
     Parameters
     ----------
     llm: BaseChatModel
-        The LLM to use for filtering the hypothesis
-    hypothesis: str
-        The hypothesis to filter
+        The language model to use for both nodes
 
     Returns
     -------
-    bool
-        True if the hypothesis is passed, False otherwise
+    StateGraph
+        A compiled LangGraph for the reflection agent
     """
-    formatted_prompt = get_initial_filter_prompt(hypothesis)
-    response = llm.invoke(formatted_prompt)
-    return "pass" in response.content.split("Final evaluation:")[-1].lower()
+    graph = StateGraph(ReflectionState)
+
+    # Add nodes
+    graph.add_node("desk_reject", lambda state: desk_reject_node(state, llm))
+    graph.add_node(
+        "deep_verification", lambda state: deep_verification_node(state, llm)
+    )
+
+    # Define transitions
+    def route_after_desk_reject(state: ReflectionState):
+        if state["passed_initial_filter"]:
+            return "deep_verification"
+        return END
+
+    graph.add_conditional_edges(
+        "desk_reject",
+        route_after_desk_reject,
+        {"deep_verification": "deep_verification", END: END},
+    )
+
+    graph.add_edge("deep_verification", END)
+
+    # Set entry point
+    graph.set_entry_point("desk_reject")
+
+    return graph.compile()
