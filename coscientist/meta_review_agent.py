@@ -352,13 +352,13 @@ def build_meta_review_agent(llm: BaseChatModel):
         "agent_optimization", lambda state: agent_optimization_node(state, llm)
     )
     graph.add_node(
-        "research_overview", lambda state: research_overview_node(state, llm)
+        "research_overview_node", lambda state: research_overview_node(state, llm)
     )
 
     # Define transitions
     graph.add_edge("pattern_identification", "agent_optimization")
-    graph.add_edge("agent_optimization", "research_overview")
-    graph.add_edge("research_overview", END)
+    graph.add_edge("agent_optimization", "research_overview_node")
+    graph.add_edge("research_overview_node", END)
 
     # Set entry point
     graph.set_entry_point("pattern_identification")

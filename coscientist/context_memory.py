@@ -147,7 +147,7 @@ class ContextMemory:
                 INSERT INTO research_sessions (goal, research_config)
                 VALUES (?, ?)
             """,
-                (goal, json.dumps(asdict(research_config))),
+                (goal, json.dumps(asdict(research_config) if hasattr(research_config, "__dataclass_fields__") else dict(research_config))),
             )
 
             return cursor.lastrowid
