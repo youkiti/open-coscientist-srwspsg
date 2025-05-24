@@ -21,6 +21,7 @@ that are relevant to the research plan.
 """
 
 from typing import List
+
 try:
     from typing import TypedDict
 except ImportError:
@@ -30,7 +31,11 @@ from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
-from coscientist.custom_types import LiteratureReview, ResearchPlanConfig, HypothesisWithID
+from coscientist.custom_types import (
+    HypothesisWithID,
+    LiteratureReview,
+    ResearchPlanConfig,
+)
 from coscientist.ranking_agent import EloTournament
 
 REVIEW_GENERATION_PROMPT = """
@@ -147,7 +152,7 @@ class MetaReviewState(TypedDict):
     research_overview: str
         Comprehensive research overview for scientists
     """
-    
+
     goal: str
     research_plan_config: ResearchPlanConfig
     tournament: EloTournament
@@ -157,7 +162,9 @@ class MetaReviewState(TypedDict):
     research_overview: str
 
 
-def pattern_identification_node(state: MetaReviewState, llm: BaseChatModel) -> MetaReviewState:
+def pattern_identification_node(
+    state: MetaReviewState, llm: BaseChatModel
+) -> MetaReviewState:
     """
     Identifies recurring patterns in reviews and debate outcomes.
 
@@ -175,21 +182,21 @@ def pattern_identification_node(state: MetaReviewState, llm: BaseChatModel) -> M
     """
     # Collect all reviews and debates
     all_reviews = state["individual_reviews"].copy()
-    
+
     # Add tournament debates
     for match_result in state["tournament"].match_history.values():
         all_reviews.append(f"Debate: {match_result.debate}")
-    
+
     if not all_reviews:
         return {
             **state,
-            "pattern_analysis": "No reviews available for pattern analysis."
+            "pattern_analysis": "No reviews available for pattern analysis.",
         }
-    
+
     pattern_prompt = f"""
     You are analyzing patterns in scientific hypothesis reviews and debates.
 
-    Research Goal: {state['goal']}
+    Research Goal: {state["goal"]}
 
     All Reviews and Debates:
     {chr(10).join(all_reviews[:10])}  # Limit to first 10 for context
@@ -203,16 +210,15 @@ def pattern_identification_node(state: MetaReviewState, llm: BaseChatModel) -> M
 
     Provide a structured analysis of these patterns.
     """
-    
+
     response = llm.invoke(pattern_prompt)
-    
-    return {
-        **state,
-        "pattern_analysis": response.content
-    }
+
+    return {**state, "pattern_analysis": response.content}
 
 
-def agent_optimization_node(state: MetaReviewState, llm: BaseChatModel) -> MetaReviewState:
+def agent_optimization_node(
+    state: MetaReviewState, llm: BaseChatModel
+) -> MetaReviewState:
     """
     Generates suggestions for optimizing agent performance based on patterns.
 
@@ -231,9 +237,9 @@ def agent_optimization_node(state: MetaReviewState, llm: BaseChatModel) -> MetaR
     optimization_prompt = f"""
     You are providing feedback to improve a multi-agent scientific research system.
 
-    Research Goal: {state['goal']}
+    Research Goal: {state["goal"]}
     
-    Pattern Analysis: {state['pattern_analysis']}
+    Pattern Analysis: {state["pattern_analysis"]}
 
     Based on the identified patterns, provide specific suggestions for optimizing each agent type:
 
@@ -245,16 +251,15 @@ def agent_optimization_node(state: MetaReviewState, llm: BaseChatModel) -> MetaR
 
     Focus on actionable improvements that address the recurring issues identified in the pattern analysis.
     """
-    
+
     response = llm.invoke(optimization_prompt)
-    
-    return {
-        **state,
-        "agent_optimization_suggestions": response.content
-    }
+
+    return {**state, "agent_optimization_suggestions": response.content}
 
 
-def research_overview_node(state: MetaReviewState, llm: BaseChatModel) -> MetaReviewState:
+def research_overview_node(
+    state: MetaReviewState, llm: BaseChatModel
+) -> MetaReviewState:
     """
     Synthesizes findings into a comprehensive research overview.
 
@@ -275,26 +280,32 @@ def research_overview_node(state: MetaReviewState, llm: BaseChatModel) -> MetaRe
     if state["tournament"].hypotheses:
         sorted_hypotheses = state["tournament"].get_sorted_hypotheses()
         top_hypotheses = [
-            state["tournament"].hypotheses[h_id] 
+            state["tournament"].hypotheses[h_id]
             for h_id, _ in sorted_hypotheses[:5]  # Top 5
         ]
-    
-    top_hypotheses_text = "\n\n".join([
-        f"Hypothesis {hyp.id}: {hyp.content}\nReview: {hyp.review[:500]}..."
-        for hyp in top_hypotheses
-    ]) if top_hypotheses else "No hypotheses available."
-    
+
+    top_hypotheses_text = (
+        "\n\n".join(
+            [
+                f"Hypothesis {hyp.id}: {hyp.content}\nReview: {hyp.review[:500]}..."
+                for hyp in top_hypotheses
+            ]
+        )
+        if top_hypotheses
+        else "No hypotheses available."
+    )
+
     overview_prompt = f"""
     You are creating a comprehensive research overview for a human scientist.
 
-    Research Goal: {state['goal']}
+    Research Goal: {state["goal"]}
     
-    Research Preferences: {state['research_plan_config'].preferences}
+    Research Preferences: {state["research_plan_config"].preferences}
     
     Top-Ranked Hypotheses:
     {top_hypotheses_text}
     
-    Pattern Analysis: {state['pattern_analysis']}
+    Pattern Analysis: {state["pattern_analysis"]}
     
     Create a structured research overview that includes:
     1. Executive Summary
@@ -306,13 +317,10 @@ def research_overview_node(state: MetaReviewState, llm: BaseChatModel) -> MetaRe
 
     Format this as a professional research report suitable for grant applications or research planning.
     """
-    
+
     response = llm.invoke(overview_prompt)
-    
-    return {
-        **state,
-        "research_overview": response.content
-    }
+
+    return {**state, "research_overview": response.content}
 
 
 def build_meta_review_agent(llm: BaseChatModel):
@@ -337,9 +345,15 @@ def build_meta_review_agent(llm: BaseChatModel):
     graph = StateGraph(MetaReviewState)
 
     # Add nodes
-    graph.add_node("pattern_identification", lambda state: pattern_identification_node(state, llm))
-    graph.add_node("agent_optimization", lambda state: agent_optimization_node(state, llm))
-    graph.add_node("research_overview", lambda state: research_overview_node(state, llm))
+    graph.add_node(
+        "pattern_identification", lambda state: pattern_identification_node(state, llm)
+    )
+    graph.add_node(
+        "agent_optimization", lambda state: agent_optimization_node(state, llm)
+    )
+    graph.add_node(
+        "research_overview", lambda state: research_overview_node(state, llm)
+    )
 
     # Define transitions
     graph.add_edge("pattern_identification", "agent_optimization")

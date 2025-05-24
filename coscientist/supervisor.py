@@ -13,7 +13,8 @@ performing well.
 """
 
 import json
-from typing import Dict, List, Any
+from typing import Any, Dict, List
+
 try:
     from typing import TypedDict
 except ImportError:
@@ -24,7 +25,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
-from coscientist.custom_types import ResearchPlanConfig, HypothesisWithID
+from coscientist.custom_types import HypothesisWithID, ResearchPlanConfig
 
 
 class SupervisorState(TypedDict):
@@ -50,7 +51,7 @@ class SupervisorState(TypedDict):
     research_summary: str
         Current summary of research progress
     """
-    
+
     goal: str
     research_plan_config: ResearchPlanConfig
     hypotheses: List[HypothesisWithID]
@@ -77,16 +78,16 @@ def planning_node(state: SupervisorState, llm: BaseChatModel) -> SupervisorState
     SupervisorState
         Updated state with initial tasks queued
     """
-    
+
     planning_prompt = f"""
     You are a scientific research supervisor planning a multi-agent research process.
 
-    Research Goal: {state['goal']}
+    Research Goal: {state["goal"]}
     
     Research Plan Configuration:
-    - Preferences: {state['research_plan_config'].preferences}
-    - Attributes: {state['research_plan_config'].attributes}
-    - Constraints: {state['research_plan_config'].constraints}
+    - Preferences: {state["research_plan_config"].preferences}
+    - Attributes: {state["research_plan_config"].attributes}
+    - Constraints: {state["research_plan_config"].constraints}
 
     Create an initial research plan with specific tasks for the following agents:
     1. Generation Agent - Generate initial hypotheses
@@ -106,7 +107,7 @@ def planning_node(state: SupervisorState, llm: BaseChatModel) -> SupervisorState
         ...
     ]
     """
-    
+
     response = llm.invoke(planning_prompt)
     try:
         tasks = json.loads(response.content)
@@ -119,21 +120,23 @@ def planning_node(state: SupervisorState, llm: BaseChatModel) -> SupervisorState
                 "agent_type": "generation",
                 "task_type": "independent_generation",
                 "priority": 1,
-                "parameters": {"field": "biology", "reasoning_type": "deductive"}
+                "parameters": {"field": "biology", "reasoning_type": "deductive"},
             }
         ]
-    
+
     return {
         **state,
         "task_queue": tasks,
         "iteration": 1,
         "agent_performance": {},
         "should_continue": True,
-        "research_summary": "Research planning initiated."
+        "research_summary": "Research planning initiated.",
     }
 
 
-def progress_assessment_node(state: SupervisorState, llm: BaseChatModel) -> SupervisorState:
+def progress_assessment_node(
+    state: SupervisorState, llm: BaseChatModel
+) -> SupervisorState:
     """
     Assesses current research progress and decides whether to continue.
 
@@ -149,19 +152,19 @@ def progress_assessment_node(state: SupervisorState, llm: BaseChatModel) -> Supe
     SupervisorState
         Updated state with progress assessment
     """
-    
+
     num_hypotheses = len(state["hypotheses"])
-    
+
     assessment_prompt = f"""
     You are assessing the progress of a scientific research process.
 
-    Research Goal: {state['goal']}
-    Current Iteration: {state['iteration']}
+    Research Goal: {state["goal"]}
+    Current Iteration: {state["iteration"]}
     Number of Hypotheses Generated: {num_hypotheses}
     
-    Research Summary: {state['research_summary']}
+    Research Summary: {state["research_summary"]}
     
-    Agent Performance: {state['agent_performance']}
+    Agent Performance: {state["agent_performance"]}
 
     Evaluate whether the research should continue based on:
     1. Quality and quantity of hypotheses generated
@@ -172,45 +175,49 @@ def progress_assessment_node(state: SupervisorState, llm: BaseChatModel) -> Supe
     Respond with either "CONTINUE" or "STOP" followed by a brief explanation.
     If continuing, suggest next priority tasks.
     """
-    
+
     response = llm.invoke(assessment_prompt)
     response_text = response.content.upper()
-    
+
     should_continue = "CONTINUE" in response_text
-    
+
     # Generate next tasks if continuing
     next_tasks = []
     if should_continue and state["iteration"] < 10:  # Max 10 iterations
         if num_hypotheses < 5:
             # Need more hypotheses
-            next_tasks.append({
-                "agent_type": "generation",
-                "task_type": "independent_generation",
-                "priority": 1,
-                "parameters": {"field": "biology", "reasoning_type": "inductive"}
-            })
+            next_tasks.append(
+                {
+                    "agent_type": "generation",
+                    "task_type": "independent_generation",
+                    "priority": 1,
+                    "parameters": {"field": "biology", "reasoning_type": "inductive"},
+                }
+            )
         elif num_hypotheses >= 5:
             # Ready for ranking and evolution
-            next_tasks.extend([
-                {
-                    "agent_type": "ranking",
-                    "task_type": "tournament",
-                    "priority": 2,
-                    "parameters": {}
-                },
-                {
-                    "agent_type": "evolution",
-                    "task_type": "refine_top_hypotheses",
-                    "priority": 3,
-                    "parameters": {}
-                }
-            ])
-    
+            next_tasks.extend(
+                [
+                    {
+                        "agent_type": "ranking",
+                        "task_type": "tournament",
+                        "priority": 2,
+                        "parameters": {},
+                    },
+                    {
+                        "agent_type": "evolution",
+                        "task_type": "refine_top_hypotheses",
+                        "priority": 3,
+                        "parameters": {},
+                    },
+                ]
+            )
+
     return {
         **state,
         "should_continue": should_continue,
         "task_queue": state["task_queue"] + next_tasks,
-        "research_summary": response.content
+        "research_summary": response.content,
     }
 
 
@@ -230,33 +237,36 @@ def task_dispatch_node(state: SupervisorState, llm: BaseChatModel) -> Supervisor
     SupervisorState
         Updated state with task dispatched
     """
-    
+
     if not state["task_queue"]:
         return {
             **state,
             "should_continue": False,
-            "research_summary": "No more tasks in queue. Research complete."
+            "research_summary": "No more tasks in queue. Research complete.",
         }
-    
+
     # Sort tasks by priority (lower number = higher priority)
     sorted_tasks = sorted(state["task_queue"], key=lambda x: x.get("priority", 999))
-    
+
     # Take the highest priority task
     next_task = sorted_tasks[0]
     remaining_tasks = sorted_tasks[1:]
-    
+
     # Update agent performance tracking
     agent_type = next_task["agent_type"]
     if agent_type not in state["agent_performance"]:
-        state["agent_performance"][agent_type] = {"tasks_completed": 0, "hypotheses_generated": 0}
-    
+        state["agent_performance"][agent_type] = {
+            "tasks_completed": 0,
+            "hypotheses_generated": 0,
+        }
+
     state["agent_performance"][agent_type]["tasks_completed"] += 1
-    
+
     return {
         **state,
         "task_queue": remaining_tasks,
         "iteration": state["iteration"] + 1,
-        "research_summary": f"Dispatched {next_task['task_type']} task to {agent_type} agent."
+        "research_summary": f"Dispatched {next_task['task_type']} task to {agent_type} agent.",
     }
 
 
@@ -283,7 +293,9 @@ def build_supervisor_agent(llm: BaseChatModel):
 
     # Add nodes
     graph.add_node("planning", lambda state: planning_node(state, llm))
-    graph.add_node("progress_assessment", lambda state: progress_assessment_node(state, llm))
+    graph.add_node(
+        "progress_assessment", lambda state: progress_assessment_node(state, llm)
+    )
     graph.add_node("task_dispatch", lambda state: task_dispatch_node(state, llm))
 
     # Define transitions
@@ -300,13 +312,13 @@ def build_supervisor_agent(llm: BaseChatModel):
 
     # Add conditional edges
     graph.add_edge("planning", "progress_assessment")
-    
+
     graph.add_conditional_edges(
         "progress_assessment",
         route_after_assessment,
-        {"task_dispatch": "task_dispatch", END: END}
+        {"task_dispatch": "task_dispatch", END: END},
     )
-    
+
     graph.add_edge("task_dispatch", "progress_assessment")
 
     # Set entry point

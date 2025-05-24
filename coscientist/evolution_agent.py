@@ -20,6 +20,7 @@ that should in principle be better.
 
 import json
 from typing import List
+
 try:
     from typing import TypedDict
 except ImportError:
@@ -29,7 +30,11 @@ from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
-from coscientist.custom_types import GeneratedHypothesis, ResearchPlanConfig, HypothesisWithID
+from coscientist.custom_types import (
+    GeneratedHypothesis,
+    HypothesisWithID,
+    ResearchPlanConfig,
+)
 
 FEASIBILITY_PROMPT = """
 You are an expert in scientific research and technological feasibility analysis.
@@ -93,14 +98,16 @@ class EvolutionState(TypedDict):
     evolved_hypotheses: List[HypothesisWithID]
         Newly evolved hypotheses
     """
-    
+
     goal: str
     research_plan_config: ResearchPlanConfig
     top_hypotheses: List[HypothesisWithID]
     evolved_hypotheses: List[HypothesisWithID]
 
 
-def feasibility_refinement_node(state: EvolutionState, llm: BaseChatModel) -> EvolutionState:
+def feasibility_refinement_node(
+    state: EvolutionState, llm: BaseChatModel
+) -> EvolutionState:
     """
     Refines hypotheses for feasibility and practicality.
 
@@ -117,7 +124,7 @@ def feasibility_refinement_node(state: EvolutionState, llm: BaseChatModel) -> Ev
         Updated state with refined hypotheses
     """
     evolved = []
-    
+
     for hypothesis in state["top_hypotheses"]:
         prompt_template = PromptTemplate(
             input_variables=["goal", "preferences", "hypothesis"],
@@ -141,31 +148,34 @@ def feasibility_refinement_node(state: EvolutionState, llm: BaseChatModel) -> Ev
         """
 
         response_json_str = llm.invoke(prompt + suffix).content.replace("\n", " ")
-        response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
-        
+        response_json_str = response_json_str.removeprefix("```json").removesuffix(
+            "```"
+        )
+
         try:
             data = json.loads(response_json_str)
             refined_hypothesis = GeneratedHypothesis(**data)
-            
+
             # Create new hypothesis with ID
             evolved_hyp = HypothesisWithID(
-                id=len(state["evolved_hypotheses"]) + len(evolved) + 1000,  # Ensure unique ID
+                id=len(state["evolved_hypotheses"])
+                + len(evolved)
+                + 1000,  # Ensure unique ID
                 content=refined_hypothesis.hypothesis,
-                review=refined_hypothesis.reasoning
+                review=refined_hypothesis.reasoning,
             )
             evolved.append(evolved_hyp)
-            
+
         except json.JSONDecodeError:
             # Skip malformed responses
             continue
-    
-    return {
-        **state,
-        "evolved_hypotheses": state["evolved_hypotheses"] + evolved
-    }
+
+    return {**state, "evolved_hypotheses": state["evolved_hypotheses"] + evolved}
 
 
-def inspiration_generation_node(state: EvolutionState, llm: BaseChatModel) -> EvolutionState:
+def inspiration_generation_node(
+    state: EvolutionState, llm: BaseChatModel
+) -> EvolutionState:
     """
     Generates new hypotheses inspired by top-ranked ones.
 
@@ -183,13 +193,15 @@ def inspiration_generation_node(state: EvolutionState, llm: BaseChatModel) -> Ev
     """
     if len(state["top_hypotheses"]) < 2:
         return state
-    
+
     # Combine top hypotheses for inspiration
-    combined_hypotheses = "\n\n".join([
-        f"Hypothesis {i+1}: {hyp.content}" 
-        for i, hyp in enumerate(state["top_hypotheses"][:3])  # Use top 3
-    ])
-    
+    combined_hypotheses = "\n\n".join(
+        [
+            f"Hypothesis {i + 1}: {hyp.content}"
+            for i, hyp in enumerate(state["top_hypotheses"][:3])  # Use top 3
+        ]
+    )
+
     prompt_template = PromptTemplate(
         input_variables=["goal", "preferences", "hypotheses"],
         template=OUT_OF_THE_BOX_PROMPT,
@@ -213,23 +225,23 @@ def inspiration_generation_node(state: EvolutionState, llm: BaseChatModel) -> Ev
 
     response_json_str = llm.invoke(prompt + suffix).content.replace("\n", " ")
     response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
-    
+
     try:
         data = json.loads(response_json_str)
         inspired_hypothesis = GeneratedHypothesis(**data)
-        
+
         # Create new hypothesis with ID
         inspired_hyp = HypothesisWithID(
             id=len(state["evolved_hypotheses"]) + 2000,  # Ensure unique ID
             content=inspired_hypothesis.hypothesis,
-            review=inspired_hypothesis.reasoning
+            review=inspired_hypothesis.reasoning,
         )
-        
+
         return {
             **state,
-            "evolved_hypotheses": state["evolved_hypotheses"] + [inspired_hyp]
+            "evolved_hypotheses": state["evolved_hypotheses"] + [inspired_hyp],
         }
-        
+
     except json.JSONDecodeError:
         return state
 
@@ -255,8 +267,12 @@ def build_evolution_agent(llm: BaseChatModel):
     graph = StateGraph(EvolutionState)
 
     # Add nodes
-    graph.add_node("feasibility_refinement", lambda state: feasibility_refinement_node(state, llm))
-    graph.add_node("inspiration_generation", lambda state: inspiration_generation_node(state, llm))
+    graph.add_node(
+        "feasibility_refinement", lambda state: feasibility_refinement_node(state, llm)
+    )
+    graph.add_node(
+        "inspiration_generation", lambda state: inspiration_generation_node(state, llm)
+    )
 
     # Define transitions
     graph.add_edge("feasibility_refinement", "inspiration_generation")
@@ -276,7 +292,7 @@ def evolve_hypothesis(
 ) -> GeneratedHypothesis:
     """
     Legacy function for single hypothesis refinement.
-    
+
     Parameters
     ----------
     llm: BaseChatModel

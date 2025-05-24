@@ -5,6 +5,7 @@ Proximity agent
 """
 
 from typing import List, Set
+
 try:
     from typing import TypedDict
 except ImportError:
@@ -109,13 +110,15 @@ class ProximityState(TypedDict):
     clusters: List[Set[int]]
         Clusters of similar hypotheses
     """
-    
+
     hypotheses: List[HypothesisWithID]
     proximity_graph: ProximityGraph
     clusters: List[Set[int]]
 
 
-def embedding_computation_node(state: ProximityState, llm: BaseChatModel) -> ProximityState:
+def embedding_computation_node(
+    state: ProximityState, llm: BaseChatModel
+) -> ProximityState:
     """
     Computes embeddings for all hypotheses and builds the proximity graph.
 
@@ -132,19 +135,16 @@ def embedding_computation_node(state: ProximityState, llm: BaseChatModel) -> Pro
         Updated state with embeddings computed
     """
     graph = state["proximity_graph"]
-    
+
     # Add all hypotheses to the graph
     for hypothesis in state["hypotheses"]:
         if hypothesis.id not in graph.graph.nodes:
             graph.add_hypothesis(hypothesis)
-    
+
     # Update edges between all hypotheses
     graph.update_edges()
-    
-    return {
-        **state,
-        "proximity_graph": graph
-    }
+
+    return {**state, "proximity_graph": graph}
 
 
 def clustering_node(state: ProximityState, llm: BaseChatModel) -> ProximityState:
@@ -164,17 +164,16 @@ def clustering_node(state: ProximityState, llm: BaseChatModel) -> ProximityState
         Updated state with clusters identified
     """
     graph = state["proximity_graph"]
-    
+
     # Get clusters using community detection
     clusters = graph.get_partitions(resolution=1.0, min_weight=0.3)
-    
-    return {
-        **state,
-        "clusters": clusters
-    }
+
+    return {**state, "clusters": clusters}
 
 
-def similarity_optimization_node(state: ProximityState, llm: BaseChatModel) -> ProximityState:
+def similarity_optimization_node(
+    state: ProximityState, llm: BaseChatModel
+) -> ProximityState:
     """
     Optimizes similarity calculations and identifies key patterns.
 
@@ -192,47 +191,54 @@ def similarity_optimization_node(state: ProximityState, llm: BaseChatModel) -> P
     """
     # Analyze cluster characteristics using the LLM
     cluster_analysis = []
-    
+
     for i, cluster in enumerate(state["clusters"]):
         if len(cluster) > 1:
             # Get hypotheses in this cluster
             cluster_hypotheses = [
-                hyp for hyp in state["hypotheses"] 
-                if hyp.id in cluster
+                hyp for hyp in state["hypotheses"] if hyp.id in cluster
             ]
-            
+
             # Analyze what makes this cluster similar
-            cluster_content = "\n\n".join([
-                f"Hypothesis {hyp.id}: {hyp.content}" 
-                for hyp in cluster_hypotheses[:3]  # Limit to first 3 for LLM context
-            ])
-            
+            cluster_content = "\n\n".join(
+                [
+                    f"Hypothesis {hyp.id}: {hyp.content}"
+                    for hyp in cluster_hypotheses[
+                        :3
+                    ]  # Limit to first 3 for LLM context
+                ]
+            )
+
             analysis_prompt = f"""
             Analyze the following cluster of similar hypotheses and identify the key themes or patterns that make them similar:
 
-            Cluster {i+1}:
+            Cluster {i + 1}:
             {cluster_content}
 
             Provide a brief summary of what makes these hypotheses similar and any insights about their shared characteristics.
             """
-            
+
             try:
                 response = llm.invoke(analysis_prompt)
-                cluster_analysis.append({
-                    "cluster_id": i,
-                    "size": len(cluster),
-                    "analysis": response.content,
-                    "hypothesis_ids": list(cluster)
-                })
+                cluster_analysis.append(
+                    {
+                        "cluster_id": i,
+                        "size": len(cluster),
+                        "analysis": response.content,
+                        "hypothesis_ids": list(cluster),
+                    }
+                )
             except Exception:
                 # Skip analysis if LLM fails
-                cluster_analysis.append({
-                    "cluster_id": i,
-                    "size": len(cluster),
-                    "analysis": "Analysis unavailable",
-                    "hypothesis_ids": list(cluster)
-                })
-    
+                cluster_analysis.append(
+                    {
+                        "cluster_id": i,
+                        "size": len(cluster),
+                        "analysis": "Analysis unavailable",
+                        "hypothesis_ids": list(cluster),
+                    }
+                )
+
     # Store analysis in the state (we can extend ProximityState to include this)
     return state
 
@@ -259,9 +265,14 @@ def build_proximity_agent(llm: BaseChatModel):
     graph = StateGraph(ProximityState)
 
     # Add nodes
-    graph.add_node("embedding_computation", lambda state: embedding_computation_node(state, llm))
+    graph.add_node(
+        "embedding_computation", lambda state: embedding_computation_node(state, llm)
+    )
     graph.add_node("clustering", lambda state: clustering_node(state, llm))
-    graph.add_node("similarity_optimization", lambda state: similarity_optimization_node(state, llm))
+    graph.add_node(
+        "similarity_optimization",
+        lambda state: similarity_optimization_node(state, llm),
+    )
 
     # Define transitions
     graph.add_edge("embedding_computation", "clustering")

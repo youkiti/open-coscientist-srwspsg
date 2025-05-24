@@ -100,7 +100,9 @@ def deep_verification_node(
     return {**state, "verification_result": response.content}
 
 
-def observation_review_node(state: ReflectionState, llm: BaseChatModel) -> ReflectionState:
+def observation_review_node(
+    state: ReflectionState, llm: BaseChatModel
+) -> ReflectionState:
     """
     Reviews hypothesis against existing observations to assess explanatory power.
 
@@ -119,15 +121,12 @@ def observation_review_node(state: ReflectionState, llm: BaseChatModel) -> Refle
     try:
         prompt = load_prompt("observation_reflection", hypothesis=state["hypothesis"])
         response = llm.invoke(prompt)
-        
+
         # Add observation review to existing verification result
         observation_review = response.content
         enhanced_result = f"{state.get('verification_result', '')}\n\nObservation Review:\n{observation_review}"
-        
-        return {
-            **state,
-            "verification_result": enhanced_result
-        }
+
+        return {**state, "verification_result": enhanced_result}
     except Exception:
         # If observation review fails, return state unchanged
         return state
@@ -156,8 +155,12 @@ def build_reflection_agent(llm: BaseChatModel):
 
     # Add nodes
     graph.add_node("desk_reject", lambda state: desk_reject_node(state, llm))
-    graph.add_node("deep_verification", lambda state: deep_verification_node(state, llm))
-    graph.add_node("observation_review", lambda state: observation_review_node(state, llm))
+    graph.add_node(
+        "deep_verification", lambda state: deep_verification_node(state, llm)
+    )
+    graph.add_node(
+        "observation_review", lambda state: observation_review_node(state, llm)
+    )
 
     # Define transitions
     def route_after_desk_reject(state: ReflectionState):

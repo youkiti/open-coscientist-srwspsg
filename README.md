@@ -280,6 +280,35 @@ We welcome contributions! Please see our contributing guidelines for:
 - Enhancing prompt engineering
 - Adding new reasoning frameworks
 
+### Development Setup
+
+#### Installing Development Dependencies
+```bash
+# Install the package with development dependencies
+pip install -e ".[dev]"
+```
+
+#### Pre-commit Hooks Setup
+This project uses pre-commit hooks to ensure code quality and consistency. The hooks automatically run `ruff check --select I` (import sorting) and `ruff format` on all changed files.
+
+```bash
+# Install pre-commit hooks
+pre-commit install
+
+# Optionally, run hooks on all files manually
+pre-commit run --all-files
+```
+
+The pre-commit configuration includes:
+- **Import sorting**: Automatically organizes imports using ruff with `--select I` flag
+- **Code formatting**: Ensures consistent formatting with ruff format
+
+If the hooks fail, they will automatically fix most issues. Simply stage the changes and commit again:
+```bash
+git add .
+git commit -m "Your commit message"
+```
+
 ## 📚 References
 
 Based on the "Towards an AI co-scientist" research from Google DeepMind and implements the multi-agent scientific discovery framework using modern LLM and graph-based orchestration techniques.

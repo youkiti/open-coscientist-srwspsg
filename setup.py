@@ -43,6 +43,7 @@ setup(
             "isort>=5.0.0",
             "mypy>=1.0.0",
             "ruff>=0.0.1",
+            "pre-commit>=3.0.0",
         ],
         "docs": [
             "sphinx>=7.0.0",

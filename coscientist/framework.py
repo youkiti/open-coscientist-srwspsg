@@ -6,30 +6,35 @@ a task queue, and assigns tasks to Agents.
 import asyncio
 import json
 from typing import Any, Dict, List, Optional, Union
+
 try:
     from typing import TypedDict
 except ImportError:
     from typing_extensions import TypedDict
-from enum import Enum
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist.custom_types import HypothesisWithID, ResearchPlanConfig
-from coscientist.generation_agent import build_independent_generation_agent, build_collaborative_generation_agent
-from coscientist.reflection_agent import build_reflection_agent
-from coscientist.ranking_agent import EloTournament
 from coscientist.evolution_agent import build_evolution_agent
-from coscientist.proximity_agent import build_proximity_agent, ProximityGraph
+from coscientist.generation_agent import (
+    build_collaborative_generation_agent,
+    build_independent_generation_agent,
+)
 from coscientist.meta_review_agent import build_meta_review_agent
-from coscientist.supervisor import build_supervisor_agent
+from coscientist.proximity_agent import ProximityGraph, build_proximity_agent
+from coscientist.ranking_agent import EloTournament
 from coscientist.reasoning_types import ReasoningType
+from coscientist.reflection_agent import build_reflection_agent
+from coscientist.supervisor import build_supervisor_agent
 
 
 class TaskStatus(Enum):
     """Status of a task in the queue."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -38,6 +43,7 @@ class TaskStatus(Enum):
 
 class AgentType(Enum):
     """Types of specialized agents."""
+
     GENERATION = "generation"
     REFLECTION = "reflection"
     RANKING = "ranking"
@@ -50,6 +56,7 @@ class AgentType(Enum):
 @dataclass
 class Task:
     """Represents a task to be executed by an agent."""
+
     id: str
     agent_type: AgentType
     task_type: str
@@ -94,7 +101,7 @@ class FrameworkState(TypedDict):
     final_results: Dict[str, Any]
         Final research results and recommendations
     """
-    
+
     goal: str
     research_plan_config: ResearchPlanConfig
     hypotheses: List[HypothesisWithID]
@@ -113,47 +120,52 @@ class CoScientistFramework:
     """
     Main framework for coordinating the AI co-scientist multi-agent system.
     """
-    
+
     def __init__(self, llm: BaseChatModel, max_concurrent_tasks: int = 3):
         self.llm = llm
         self.max_concurrent_tasks = max_concurrent_tasks
-        
+
         # Build all agent graphs
         self.agents = {
             AgentType.GENERATION: {
-                "independent": build_independent_generation_agent("biology", ReasoningType.DEDUCTIVE, llm),
+                "independent": build_independent_generation_agent(
+                    "biology", ReasoningType.DEDUCTIVE, llm
+                ),
                 "collaborative": build_collaborative_generation_agent(
-                    ["biologist", "chemist"], 
+                    ["biologist", "chemist"],
                     {"biologist": "biology", "chemist": "chemistry"},
-                    {"biologist": ReasoningType.DEDUCTIVE, "chemist": ReasoningType.INDUCTIVE},
-                    {"biologist": llm, "chemist": llm}
-                )
+                    {
+                        "biologist": ReasoningType.DEDUCTIVE,
+                        "chemist": ReasoningType.INDUCTIVE,
+                    },
+                    {"biologist": llm, "chemist": llm},
+                ),
             },
             AgentType.REFLECTION: build_reflection_agent(llm),
             AgentType.EVOLUTION: build_evolution_agent(llm),
             AgentType.PROXIMITY: build_proximity_agent(llm),
             AgentType.META_REVIEW: build_meta_review_agent(llm),
-            AgentType.SUPERVISOR: build_supervisor_agent(llm)
+            AgentType.SUPERVISOR: build_supervisor_agent(llm),
         }
-        
+
         self._task_counter = 0
-    
+
     def _generate_task_id(self) -> str:
         """Generate a unique task ID."""
         self._task_counter += 1
         return f"task_{self._task_counter:06d}"
-    
+
     async def execute_task(self, task: Task, state: FrameworkState) -> Task:
         """
         Execute a single task using the appropriate agent.
-        
+
         Parameters
         ----------
         task: Task
             The task to execute
         state: FrameworkState
             Current framework state
-            
+
         Returns
         -------
         Task
@@ -161,7 +173,7 @@ class CoScientistFramework:
         """
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now()
-        
+
         try:
             # Route task to appropriate agent
             if task.agent_type == AgentType.GENERATION:
@@ -178,76 +190,76 @@ class CoScientistFramework:
                 result = await self._execute_meta_review_task(task, state)
             else:
                 raise ValueError(f"Unknown agent type: {task.agent_type}")
-            
+
             task.result = result
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
-            
+
         except Exception as e:
             task.error = str(e)
             task.status = TaskStatus.FAILED
             task.completed_at = datetime.now()
-        
+
         return task
-    
+
     async def _execute_generation_task(self, task: Task, state: FrameworkState) -> Any:
         """Execute a generation agent task."""
         if task.task_type == "independent_generation":
             from coscientist.generation_agent import IndependentState
-            
+
             agent_state = IndependentState(
                 goal=state["goal"],
                 literature_review="",  # Could be populated from previous tasks
-                hypothesis=""
+                hypothesis="",
             )
-            
+
             agent = self.agents[AgentType.GENERATION]["independent"]
             result = agent.invoke(agent_state)
-            
+
             # Extract hypothesis and add to state
             if "hypothesis" in result:
                 new_hypothesis = HypothesisWithID(
                     id=len(state["hypotheses"]) + 1,
                     content=result["hypothesis"],
-                    review=""
+                    review="",
                 )
                 state["hypotheses"].append(new_hypothesis)
-            
+
             return result
-        
+
         else:
             raise ValueError(f"Unknown generation task type: {task.task_type}")
-    
+
     async def _execute_reflection_task(self, task: Task, state: FrameworkState) -> Any:
         """Execute a reflection agent task."""
         if not state["hypotheses"]:
             return {"error": "No hypotheses to reflect on"}
-        
+
         # Take the most recent hypothesis for reflection
         hypothesis = state["hypotheses"][-1]
-        
+
         from coscientist.reflection_agent import ReflectionState
-        
+
         agent_state = ReflectionState(
             hypothesis=hypothesis.content,
             initial_filter_assessment="",
             passed_initial_filter=False,
-            verification_result=""
+            verification_result="",
         )
-        
+
         agent = self.agents[AgentType.REFLECTION]
         result = agent.invoke(agent_state)
-        
+
         # Update hypothesis with review
         hypothesis.review = result.get("verification_result", "")
-        
+
         return result
-    
+
     async def _execute_ranking_task(self, task: Task, state: FrameworkState) -> Any:
         """Execute a ranking agent task."""
         if len(state["hypotheses"]) < 2:
             return {"error": "Need at least 2 hypotheses for ranking"}
-        
+
         # Add hypotheses to tournament if not already added
         for hypothesis in state["hypotheses"]:
             try:
@@ -255,67 +267,69 @@ class CoScientistFramework:
             except ValueError:
                 # Hypothesis already exists
                 pass
-        
+
         # Run tournament
         state["tournament"].run_tournament()
-        
-        return {"tournament_complete": True, "rankings": state["tournament"].get_sorted_hypotheses()}
-    
+
+        return {
+            "tournament_complete": True,
+            "rankings": state["tournament"].get_sorted_hypotheses(),
+        }
+
     async def _execute_evolution_task(self, task: Task, state: FrameworkState) -> Any:
         """Execute an evolution agent task."""
         # Get top hypotheses from tournament
         if not state["hypotheses"]:
             return {"error": "No hypotheses to evolve"}
-        
+
         # Take top 3 hypotheses
         sorted_hypotheses = state["tournament"].get_sorted_hypotheses()
         top_hypotheses = [
-            state["tournament"].hypotheses[h_id] 
-            for h_id, _ in sorted_hypotheses[:3]
+            state["tournament"].hypotheses[h_id] for h_id, _ in sorted_hypotheses[:3]
         ]
-        
+
         from coscientist.evolution_agent import EvolutionState
-        
+
         agent_state = EvolutionState(
             goal=state["goal"],
             research_plan_config=state["research_plan_config"],
             top_hypotheses=top_hypotheses,
-            evolved_hypotheses=[]
+            evolved_hypotheses=[],
         )
-        
+
         agent = self.agents[AgentType.EVOLUTION]
         result = agent.invoke(agent_state)
-        
+
         # Add evolved hypotheses to main state
         state["hypotheses"].extend(result["evolved_hypotheses"])
-        
+
         return result
-    
+
     async def _execute_proximity_task(self, task: Task, state: FrameworkState) -> Any:
         """Execute a proximity agent task."""
         from coscientist.proximity_agent import ProximityState
-        
+
         agent_state = ProximityState(
             hypotheses=state["hypotheses"],
             proximity_graph=state["proximity_graph"],
-            clusters=[]
+            clusters=[],
         )
-        
+
         agent = self.agents[AgentType.PROXIMITY]
         result = agent.invoke(agent_state)
-        
+
         # Update proximity graph in state
         state["proximity_graph"] = result["proximity_graph"]
-        
+
         return result
-    
+
     async def _execute_meta_review_task(self, task: Task, state: FrameworkState) -> Any:
         """Execute a meta-review agent task."""
         from coscientist.meta_review_agent import MetaReviewState
-        
+
         # Collect individual reviews
         individual_reviews = [hyp.review for hyp in state["hypotheses"] if hyp.review]
-        
+
         agent_state = MetaReviewState(
             goal=state["goal"],
             research_plan_config=state["research_plan_config"],
@@ -323,27 +337,29 @@ class CoScientistFramework:
             individual_reviews=individual_reviews,
             pattern_analysis="",
             agent_optimization_suggestions="",
-            research_overview=""
+            research_overview="",
         )
-        
+
         agent = self.agents[AgentType.META_REVIEW]
         result = agent.invoke(agent_state)
-        
+
         # Store results for final output
         state["final_results"]["research_overview"] = result["research_overview"]
-        state["final_results"]["optimization_suggestions"] = result["agent_optimization_suggestions"]
-        
+        state["final_results"]["optimization_suggestions"] = result[
+            "agent_optimization_suggestions"
+        ]
+
         return result
-    
+
     async def run_framework(
-        self, 
-        goal: str, 
+        self,
+        goal: str,
         research_plan_config: ResearchPlanConfig,
-        max_iterations: int = 10
+        max_iterations: int = 10,
     ) -> Dict[str, Any]:
         """
         Run the complete AI co-scientist framework.
-        
+
         Parameters
         ----------
         goal: str
@@ -352,7 +368,7 @@ class CoScientistFramework:
             Research configuration
         max_iterations: int
             Maximum number of iterations
-            
+
         Returns
         -------
         Dict[str, Any]
@@ -364,9 +380,9 @@ class CoScientistFramework:
             goal=goal,
             preferences=research_plan_config.preferences,
             notes="",
-            idea_attributes=research_plan_config.attributes
+            idea_attributes=research_plan_config.attributes,
         )
-        
+
         state = FrameworkState(
             goal=goal,
             research_plan_config=research_plan_config,
@@ -379,9 +395,9 @@ class CoScientistFramework:
             agent_performance={},
             iteration=0,
             should_continue=True,
-            final_results={}
+            final_results={},
         )
-        
+
         # Create initial tasks
         initial_tasks = [
             Task(
@@ -389,72 +405,72 @@ class CoScientistFramework:
                 agent_type=AgentType.GENERATION,
                 task_type="independent_generation",
                 parameters={"field": "biology", "reasoning_type": "deductive"},
-                priority=1
+                priority=1,
             ),
             Task(
                 id=self._generate_task_id(),
                 agent_type=AgentType.GENERATION,
                 task_type="independent_generation",
                 parameters={"field": "chemistry", "reasoning_type": "inductive"},
-                priority=1
-            )
+                priority=1,
+            ),
         ]
-        
+
         state["task_queue"] = initial_tasks
-        
+
         # Main execution loop
         for iteration in range(max_iterations):
             state["iteration"] = iteration
-            
+
             if not state["should_continue"] or not state["task_queue"]:
                 break
-            
+
             # Execute tasks concurrently
             await self._execute_task_batch(state)
-            
+
             # Add follow-up tasks based on current state
             self._schedule_follow_up_tasks(state)
-        
+
         # Final meta-review
         final_meta_review_task = Task(
             id=self._generate_task_id(),
             agent_type=AgentType.META_REVIEW,
             task_type="final_review",
             parameters={},
-            priority=1
+            priority=1,
         )
-        
+
         state["task_queue"] = [final_meta_review_task]
         await self._execute_task_batch(state)
-        
+
         return state["final_results"]
-    
+
     async def _execute_task_batch(self, state: FrameworkState):
         """Execute a batch of tasks concurrently."""
         # Sort tasks by priority
         state["task_queue"].sort(key=lambda t: t.priority)
-        
+
         # Take up to max_concurrent_tasks
-        tasks_to_run = state["task_queue"][:self.max_concurrent_tasks]
-        state["task_queue"] = state["task_queue"][self.max_concurrent_tasks:]
+        tasks_to_run = state["task_queue"][: self.max_concurrent_tasks]
+        state["task_queue"] = state["task_queue"][self.max_concurrent_tasks :]
         state["active_tasks"].extend(tasks_to_run)
-        
+
         # Execute tasks concurrently
         if tasks_to_run:
             results = await asyncio.gather(
                 *[self.execute_task(task, state) for task in tasks_to_run],
-                return_exceptions=True
+                return_exceptions=True,
             )
-            
+
             # Move completed tasks
             for task in tasks_to_run:
                 state["active_tasks"].remove(task)
                 state["completed_tasks"].append(task)
-    
+
     def _schedule_follow_up_tasks(self, state: FrameworkState):
         """Schedule follow-up tasks based on current state."""
         num_hypotheses = len(state["hypotheses"])
-        
+
         # Schedule reflection for new hypotheses
         unreviewed_hypotheses = [h for h in state["hypotheses"] if not h.review]
         for _ in unreviewed_hypotheses[:2]:  # Review up to 2 at a time
@@ -463,10 +479,10 @@ class CoScientistFramework:
                 agent_type=AgentType.REFLECTION,
                 task_type="review_hypothesis",
                 parameters={},
-                priority=2
+                priority=2,
             )
             state["task_queue"].append(task)
-        
+
         # Schedule ranking when we have enough hypotheses
         if num_hypotheses >= 5 and state["iteration"] % 3 == 0:
             task = Task(
@@ -474,10 +490,10 @@ class CoScientistFramework:
                 agent_type=AgentType.RANKING,
                 task_type="tournament",
                 parameters={},
-                priority=3
+                priority=3,
             )
             state["task_queue"].append(task)
-        
+
         # Schedule evolution after ranking
         if num_hypotheses >= 3 and state["iteration"] % 4 == 0:
             task = Task(
@@ -485,10 +501,10 @@ class CoScientistFramework:
                 agent_type=AgentType.EVOLUTION,
                 task_type="evolve_top_hypotheses",
                 parameters={},
-                priority=4
+                priority=4,
             )
             state["task_queue"].append(task)
-        
+
         # Schedule proximity analysis periodically
         if num_hypotheses >= 4 and state["iteration"] % 5 == 0:
             task = Task(
@@ -496,10 +512,10 @@ class CoScientistFramework:
                 agent_type=AgentType.PROXIMITY,
                 task_type="analyze_similarity",
                 parameters={},
-                priority=5
+                priority=5,
             )
             state["task_queue"].append(task)
-        
+
         # Stop condition
         if state["iteration"] >= 8 or num_hypotheses >= 20:
             state["should_continue"] = False
