@@ -19,11 +19,17 @@ that should in principle be better.
 """
 
 import json
+from typing import List
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
 
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.graph import END, StateGraph
 
-from coscientist.custom_types import GeneratedHypothesis, ResearchPlanConfig
+from coscientist.custom_types import GeneratedHypothesis, ResearchPlanConfig, HypothesisWithID
 
 FEASIBILITY_PROMPT = """
 You are an expert in scientific research and technological feasibility analysis.
@@ -72,6 +78,196 @@ not direct replication):
 """
 
 
+class EvolutionState(TypedDict):
+    """
+    Represents the state of the evolution process.
+
+    Parameters
+    ----------
+    goal: str
+        The research goal
+    research_plan_config: ResearchPlanConfig
+        Configuration with preferences, attributes, and constraints
+    top_hypotheses: List[HypothesisWithID]
+        Top-ranked hypotheses to evolve
+    evolved_hypotheses: List[HypothesisWithID]
+        Newly evolved hypotheses
+    """
+    
+    goal: str
+    research_plan_config: ResearchPlanConfig
+    top_hypotheses: List[HypothesisWithID]
+    evolved_hypotheses: List[HypothesisWithID]
+
+
+def feasibility_refinement_node(state: EvolutionState, llm: BaseChatModel) -> EvolutionState:
+    """
+    Refines hypotheses for feasibility and practicality.
+
+    Parameters
+    ----------
+    state: EvolutionState
+        Current evolution state
+    llm: BaseChatModel
+        Language model for refinement
+
+    Returns
+    -------
+    EvolutionState
+        Updated state with refined hypotheses
+    """
+    evolved = []
+    
+    for hypothesis in state["top_hypotheses"]:
+        prompt_template = PromptTemplate(
+            input_variables=["goal", "preferences", "hypothesis"],
+            template=FEASIBILITY_PROMPT,
+        )
+        prompt = prompt_template.format(
+            goal=state["goal"],
+            preferences=state["research_plan_config"].preferences,
+            hypothesis=hypothesis.content,
+        )
+
+        suffix = """
+        Return your output strictly in the following JSON format:
+        {
+            "reasoning": "<full detailed reasoning including analytical steps, literature synthesis, and logical progression>",
+            "hypothesis": "<fully refined hypothesis, stated in detail and tailored for domain experts>"
+        }
+
+        {
+            "reasoning": "
+        """
+
+        response_json_str = llm.invoke(prompt + suffix).content.replace("\n", " ")
+        response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
+        
+        try:
+            data = json.loads(response_json_str)
+            refined_hypothesis = GeneratedHypothesis(**data)
+            
+            # Create new hypothesis with ID
+            evolved_hyp = HypothesisWithID(
+                id=len(state["evolved_hypotheses"]) + len(evolved) + 1000,  # Ensure unique ID
+                content=refined_hypothesis.hypothesis,
+                review=refined_hypothesis.reasoning
+            )
+            evolved.append(evolved_hyp)
+            
+        except json.JSONDecodeError:
+            # Skip malformed responses
+            continue
+    
+    return {
+        **state,
+        "evolved_hypotheses": state["evolved_hypotheses"] + evolved
+    }
+
+
+def inspiration_generation_node(state: EvolutionState, llm: BaseChatModel) -> EvolutionState:
+    """
+    Generates new hypotheses inspired by top-ranked ones.
+
+    Parameters
+    ----------
+    state: EvolutionState
+        Current evolution state
+    llm: BaseChatModel
+        Language model for inspiration
+
+    Returns
+    -------
+    EvolutionState
+        Updated state with inspired hypotheses
+    """
+    if len(state["top_hypotheses"]) < 2:
+        return state
+    
+    # Combine top hypotheses for inspiration
+    combined_hypotheses = "\n\n".join([
+        f"Hypothesis {i+1}: {hyp.content}" 
+        for i, hyp in enumerate(state["top_hypotheses"][:3])  # Use top 3
+    ])
+    
+    prompt_template = PromptTemplate(
+        input_variables=["goal", "preferences", "hypotheses"],
+        template=OUT_OF_THE_BOX_PROMPT,
+    )
+    prompt = prompt_template.format(
+        goal=state["goal"],
+        preferences=state["research_plan_config"].preferences,
+        hypotheses=combined_hypotheses,
+    )
+
+    suffix = """
+    Return your output strictly in the following JSON format:
+    {
+        "reasoning": "<full detailed reasoning including analytical steps, literature synthesis, and logical progression>",
+        "hypothesis": "<fully original hypothesis inspired by analogous principles, stated in detail>"
+    }
+
+    {
+        "reasoning": "
+    """
+
+    response_json_str = llm.invoke(prompt + suffix).content.replace("\n", " ")
+    response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
+    
+    try:
+        data = json.loads(response_json_str)
+        inspired_hypothesis = GeneratedHypothesis(**data)
+        
+        # Create new hypothesis with ID
+        inspired_hyp = HypothesisWithID(
+            id=len(state["evolved_hypotheses"]) + 2000,  # Ensure unique ID
+            content=inspired_hypothesis.hypothesis,
+            review=inspired_hypothesis.reasoning
+        )
+        
+        return {
+            **state,
+            "evolved_hypotheses": state["evolved_hypotheses"] + [inspired_hyp]
+        }
+        
+    except json.JSONDecodeError:
+        return state
+
+
+def build_evolution_agent(llm: BaseChatModel):
+    """
+    Builds and configures a LangGraph for the evolution agent process.
+
+    The graph evolves hypotheses through:
+    1. Feasibility refinement - improving practicality and implementability
+    2. Inspiration generation - creating new hypotheses from top-ranked ones
+
+    Parameters
+    ----------
+    llm: BaseChatModel
+        The language model to use for evolution
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the evolution agent
+    """
+    graph = StateGraph(EvolutionState)
+
+    # Add nodes
+    graph.add_node("feasibility_refinement", lambda state: feasibility_refinement_node(state, llm))
+    graph.add_node("inspiration_generation", lambda state: inspiration_generation_node(state, llm))
+
+    # Define transitions
+    graph.add_edge("feasibility_refinement", "inspiration_generation")
+    graph.add_edge("inspiration_generation", END)
+
+    # Set entry point
+    graph.set_entry_point("feasibility_refinement")
+
+    return graph.compile()
+
+
 def evolve_hypothesis(
     llm: BaseChatModel,
     goal: str,
@@ -79,8 +275,8 @@ def evolve_hypothesis(
     hypothesis: GeneratedHypothesis,
 ) -> GeneratedHypothesis:
     """
-    Refine a hypothesis for feasibility and practicality using the FEASIBILITY_PROMPT and an LLM.
-
+    Legacy function for single hypothesis refinement.
+    
     Parameters
     ----------
     llm: BaseChatModel
@@ -89,8 +285,8 @@ def evolve_hypothesis(
         The research goal
     research_plan_config: ResearchPlanConfig
         The research plan configuration (for preferences)
-    hypothesis: str
-        The hypothesis to refine (as a string)
+    hypothesis: GeneratedHypothesis
+        The hypothesis to refine
 
     Returns
     -------
@@ -124,7 +320,5 @@ def evolve_hypothesis(
         data = json.loads(response_json_str)
         return GeneratedHypothesis(**data)
     except json.JSONDecodeError as e:
-        # print(f"Error decoding JSON from LLM: {e}")
-        # print(f"LLM Output was: {response_json_str}")
-        # raise
-        return response_json_str
+        # Return original if parsing fails
+        return hypothesis

@@ -7,14 +7,7 @@ Reflection agent
 - Deep verification
 
 More details:
-- Does an initial review to assess the correctness, quality,
-and novelty of the hypothesis. Does not use web search -- meant
-to be a quick filter of bad ideas.
 - Fully reviews a hypothesis with web search
-- Deep verification decomposes a hypothesis into constituent
-assumptions and sub-assumptions, and checks them for correctness.
-Flawed assumptions don't necessarily invalidate an idea, but they
-are flagged as areas for refinement/evolution.
 - Observation review checks to see if there is unexplained observational
 data that would be explained by the hypothesis.
 - Simulation does a step-by-step rollout of a proposed mechanism of
@@ -23,7 +16,10 @@ action or experiment.
 recurring issues and opportunities for improvement.
 """
 
-from typing import TypedDict
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
 
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -104,18 +100,52 @@ def deep_verification_node(
     return {**state, "verification_result": response.content}
 
 
+def observation_review_node(state: ReflectionState, llm: BaseChatModel) -> ReflectionState:
+    """
+    Reviews hypothesis against existing observations to assess explanatory power.
+
+    Parameters
+    ----------
+    state: ReflectionState
+        Current reflection state
+    llm: BaseChatModel
+        Language model for observation review
+
+    Returns
+    -------
+    ReflectionState
+        Updated state with observation review
+    """
+    try:
+        prompt = load_prompt("observation_reflection", hypothesis=state["hypothesis"])
+        response = llm.invoke(prompt)
+        
+        # Add observation review to existing verification result
+        observation_review = response.content
+        enhanced_result = f"{state.get('verification_result', '')}\n\nObservation Review:\n{observation_review}"
+        
+        return {
+            **state,
+            "verification_result": enhanced_result
+        }
+    except Exception:
+        # If observation review fails, return state unchanged
+        return state
+
+
 def build_reflection_agent(llm: BaseChatModel):
     """
     Builds and configures a LangGraph for the reflection agent process.
 
-    The graph has two nodes:
+    The graph has three nodes:
     1. desk_reject: Evaluates if a hypothesis is worth deeper analysis
     2. deep_verification: Performs detailed verification of hypotheses that pass initial filtering
+    3. observation_review: Assesses explanatory power against existing observations
 
     Parameters
     ----------
     llm: BaseChatModel
-        The language model to use for both nodes
+        The language model to use for all nodes
 
     Returns
     -------
@@ -126,9 +156,8 @@ def build_reflection_agent(llm: BaseChatModel):
 
     # Add nodes
     graph.add_node("desk_reject", lambda state: desk_reject_node(state, llm))
-    graph.add_node(
-        "deep_verification", lambda state: deep_verification_node(state, llm)
-    )
+    graph.add_node("deep_verification", lambda state: deep_verification_node(state, llm))
+    graph.add_node("observation_review", lambda state: observation_review_node(state, llm))
 
     # Define transitions
     def route_after_desk_reject(state: ReflectionState):
@@ -136,13 +165,17 @@ def build_reflection_agent(llm: BaseChatModel):
             return "deep_verification"
         return END
 
+    def route_after_verification(state: ReflectionState):
+        return "observation_review"
+
     graph.add_conditional_edges(
         "desk_reject",
         route_after_desk_reject,
         {"deep_verification": "deep_verification", END: END},
     )
 
-    graph.add_edge("deep_verification", END)
+    graph.add_edge("deep_verification", "observation_review")
+    graph.add_edge("observation_review", END)
 
     # Set entry point
     graph.set_entry_point("desk_reject")
