@@ -19,6 +19,7 @@ from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, StateGraph
 from sklearn.metrics.pairwise import cosine_similarity
 
+from coscientist.common import load_prompt
 from coscientist.custom_types import HypothesisWithID
 
 
@@ -209,17 +210,14 @@ def similarity_optimization_node(
                 ]
             )
 
-            analysis_prompt = f"""
-            Analyze the following cluster of similar hypotheses and identify the key themes or patterns that make them similar:
-
-            Cluster {i + 1}:
-            {cluster_content}
-
-            Provide a brief summary of what makes these hypotheses similar and any insights about their shared characteristics.
-            """
+            prompt = load_prompt(
+                "cluster_analysis",
+                cluster_id=i + 1,
+                cluster_content=cluster_content,
+            )
 
             try:
-                response = llm.invoke(analysis_prompt)
+                response = llm.invoke(prompt)
                 cluster_analysis.append(
                     {
                         "cluster_id": i,

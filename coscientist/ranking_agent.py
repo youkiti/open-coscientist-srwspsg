@@ -25,6 +25,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
 from tqdm import tqdm
 
+from coscientist.common import load_prompt
 from coscientist.custom_types import HypothesisWithID
 
 # Constants
@@ -228,25 +229,20 @@ class EloTournament:
             - 1 if hypo1 wins, 2 if hypo2 wins, None if winner cannot be determined.
             - The response text from the LLM.
         """
-        # Use PromptTemplate for safer formatting
-        prompt_builder = PromptTemplate.from_template(prompt_template)
-
         # Prepare inputs based on the prompt template structure
-        # Assuming both prompts need these core elements
         prompt_input = {
             "goal": self.goal,
             "preferences": self.preferences,
             "notes": self.notes,
             "hypothesis_1": hypo1.content,
             "hypothesis_2": hypo2.content,
-            "review_1": hypo1.review,  # Assumes review is available
+            "review_1": hypo1.review,
             "review_2": hypo2.review,
-            # Add other fields specific to each prompt if necessary
-            "idea_attributes": self.idea_attributes,  # Used in SIMULATED_DEBATE_PROMPT
-            # TOURNAMENT_PROMPT specific might just ignore extra keys
+            "idea_attributes": self.idea_attributes,
         }
 
-        formatted_prompt = prompt_builder.format(**prompt_input)
+        # Load and format the prompt
+        formatted_prompt = load_prompt(prompt_template, **prompt_input)
         response = self.llm.invoke(formatted_prompt)
         response_text = (
             response

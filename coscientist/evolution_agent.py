@@ -30,6 +30,7 @@ from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
+from coscientist.common import load_prompt
 from coscientist.custom_types import (
     GeneratedHypothesis,
     HypothesisWithID,
@@ -126,11 +127,8 @@ def feasibility_refinement_node(
     evolved = []
 
     for hypothesis in state["top_hypotheses"]:
-        prompt_template = PromptTemplate(
-            input_variables=["goal", "preferences", "hypothesis"],
-            template=FEASIBILITY_PROMPT,
-        )
-        prompt = prompt_template.format(
+        prompt = load_prompt(
+            "feasibility",
             goal=state["goal"],
             preferences=state["research_plan_config"].preferences,
             hypothesis=hypothesis.content,
@@ -202,11 +200,8 @@ def inspiration_generation_node(
         ]
     )
 
-    prompt_template = PromptTemplate(
-        input_variables=["goal", "preferences", "hypotheses"],
-        template=OUT_OF_THE_BOX_PROMPT,
-    )
-    prompt = prompt_template.format(
+    prompt = load_prompt(
+        "out_of_the_box",
         goal=state["goal"],
         preferences=state["research_plan_config"].preferences,
         hypotheses=combined_hypotheses,

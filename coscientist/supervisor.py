@@ -78,37 +78,15 @@ def planning_node(state: SupervisorState, llm: BaseChatModel) -> SupervisorState
     SupervisorState
         Updated state with initial tasks queued
     """
+    prompt = load_prompt(
+        "research_planning",
+        goal=state["goal"],
+        preferences=state["research_plan_config"].preferences,
+        attributes=state["research_plan_config"].attributes,
+        constraints=state["research_plan_config"].constraints,
+    )
 
-    planning_prompt = f"""
-    You are a scientific research supervisor planning a multi-agent research process.
-
-    Research Goal: {state["goal"]}
-    
-    Research Plan Configuration:
-    - Preferences: {state["research_plan_config"].preferences}
-    - Attributes: {state["research_plan_config"].attributes}
-    - Constraints: {state["research_plan_config"].constraints}
-
-    Create an initial research plan with specific tasks for the following agents:
-    1. Generation Agent - Generate initial hypotheses
-    2. Reflection Agent - Review hypotheses  
-    3. Ranking Agent - Run tournaments to rank hypotheses
-    4. Evolution Agent - Refine top hypotheses
-    5. Meta-review Agent - Synthesize findings
-
-    Return a JSON list of initial tasks in this format:
-    [
-        {{
-            "agent_type": "generation",
-            "task_type": "independent_generation", 
-            "priority": 1,
-            "parameters": {{"field": "biology", "reasoning_type": "deductive"}}
-        }},
-        ...
-    ]
-    """
-
-    response = llm.invoke(planning_prompt)
+    response = llm.invoke(prompt)
     try:
         tasks = json.loads(response.content)
         if not isinstance(tasks, list):
@@ -152,31 +130,18 @@ def progress_assessment_node(
     SupervisorState
         Updated state with progress assessment
     """
-
     num_hypotheses = len(state["hypotheses"])
 
-    assessment_prompt = f"""
-    You are assessing the progress of a scientific research process.
+    prompt = load_prompt(
+        "progress_assessment",
+        goal=state["goal"],
+        iteration=state["iteration"],
+        num_hypotheses=num_hypotheses,
+        research_summary=state["research_summary"],
+        agent_performance=state["agent_performance"],
+    )
 
-    Research Goal: {state["goal"]}
-    Current Iteration: {state["iteration"]}
-    Number of Hypotheses Generated: {num_hypotheses}
-    
-    Research Summary: {state["research_summary"]}
-    
-    Agent Performance: {state["agent_performance"]}
-
-    Evaluate whether the research should continue based on:
-    1. Quality and quantity of hypotheses generated
-    2. Progress toward the research goal
-    3. Diminishing returns from further iteration
-    4. Resource efficiency
-
-    Respond with either "CONTINUE" or "STOP" followed by a brief explanation.
-    If continuing, suggest next priority tasks.
-    """
-
-    response = llm.invoke(assessment_prompt)
+    response = llm.invoke(prompt)
     response_text = response.content.upper()
 
     should_continue = "CONTINUE" in response_text

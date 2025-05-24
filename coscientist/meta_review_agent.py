@@ -31,39 +31,13 @@ from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
+from coscientist.common import load_prompt
 from coscientist.custom_types import (
     HypothesisWithID,
     LiteratureReview,
     ResearchPlanConfig,
 )
 from coscientist.ranking_agent import EloTournament
-
-REVIEW_GENERATION_PROMPT = """
-You are an expert in scientific research and meta-analysis.
-Synthesize a comprehensive meta-review of provided reviews
-pertaining to the following research goal:
-
-Goal: {goal}
-
-Preferences:
-{preferences}
-
-Additional instructions:
-{instructions}
-
-Provided reviews for meta-analysis:
-{reviews}
-
-Instructions:
-* Generate a structured meta-analysis report of the provided reviews.
-* Focus on identifying recurring critique points and common issues raised by reviewers.
-* The generated meta-analysis should provide actionable insights for researchers
-developing future proposals.
-* Refrain from evaluating individual proposals or reviews;
-focus on producing a synthesized meta-analysis.
-
-Response:
-"""
 
 
 def get_meta_review_prompt(
@@ -75,8 +49,8 @@ def get_meta_review_prompt(
     """
     Compile a review of the literature germane to the given topic.
     """
-    prompt = PromptTemplate.from_template(REVIEW_GENERATION_PROMPT)
-    return prompt.format(
+    return load_prompt(
+        "meta_review",
         goal=goal,
         preferences=preferences,
         reviews="\nReview:\n".join(reviews),
@@ -193,25 +167,12 @@ def pattern_identification_node(
             "pattern_analysis": "No reviews available for pattern analysis.",
         }
 
-    pattern_prompt = f"""
-    You are analyzing patterns in scientific hypothesis reviews and debates.
-
-    Research Goal: {state["goal"]}
-
-    All Reviews and Debates:
-    {chr(10).join(all_reviews[:10])}  # Limit to first 10 for context
-
-    Identify recurring patterns including:
-    1. Common strengths across highly-rated hypotheses
-    2. Frequent weaknesses or failure modes
-    3. Recurring themes in successful arguments
-    4. Common evaluation criteria being emphasized
-    5. Bias patterns in review processes
-
-    Provide a structured analysis of these patterns.
-    """
-
-    response = llm.invoke(pattern_prompt)
+    prompt = load_prompt(
+        "pattern_identification",
+        goal=state["goal"],
+        reviews=chr(10).join(all_reviews[:10]),  # Limit to first 10 for context
+    )
+    response = llm.invoke(prompt)
 
     return {**state, "pattern_analysis": response.content}
 
@@ -234,25 +195,12 @@ def agent_optimization_node(
     MetaReviewState
         Updated state with optimization suggestions
     """
-    optimization_prompt = f"""
-    You are providing feedback to improve a multi-agent scientific research system.
-
-    Research Goal: {state["goal"]}
-    
-    Pattern Analysis: {state["pattern_analysis"]}
-
-    Based on the identified patterns, provide specific suggestions for optimizing each agent type:
-
-    1. Generation Agent - How to improve hypothesis generation quality
-    2. Reflection Agent - How to enhance review quality and consistency  
-    3. Ranking Agent - How to improve tournament fairness and accuracy
-    4. Evolution Agent - How to better refine and evolve hypotheses
-    5. Proximity Agent - How to improve similarity detection and clustering
-
-    Focus on actionable improvements that address the recurring issues identified in the pattern analysis.
-    """
-
-    response = llm.invoke(optimization_prompt)
+    prompt = load_prompt(
+        "agent_optimization",
+        goal=state["goal"],
+        pattern_analysis=state["pattern_analysis"],
+    )
+    response = llm.invoke(prompt)
 
     return {**state, "agent_optimization_suggestions": response.content}
 
