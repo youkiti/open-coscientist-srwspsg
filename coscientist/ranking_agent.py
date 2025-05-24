@@ -258,9 +258,9 @@ class EloTournament:
         # Look for "better idea: 1", "better idea: 2", "better hypothesis: 1", etc.
         # Also handles simple "<1>" or "<2>" responses.
         winner_str = response_text.split(":")[-1]
-        assert ("1" in winner_str) ^ ("2" in winner_str), (
-            f"Invalid winner string: {winner_str}"
-        )
+        assert ("1" in winner_str) ^ (
+            "2" in winner_str
+        ), f"Invalid winner string: {winner_str}"
         winner = 1 if "1" in winner_str else 2
 
         return winner, response_text

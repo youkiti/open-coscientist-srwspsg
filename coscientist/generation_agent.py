@@ -25,9 +25,9 @@ try:
 except ImportError:
     from typing_extensions import TypedDict
 
+from langchain.chat_models import init_chat_model
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain.chat_models import init_chat_model
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
