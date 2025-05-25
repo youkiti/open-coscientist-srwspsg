@@ -16,10 +16,7 @@ action or experiment.
 recurring issues and opportunities for improvement.
 """
 
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+from typing import TypedDict
 
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel

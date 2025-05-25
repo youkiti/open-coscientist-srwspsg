@@ -13,12 +13,7 @@ performing well.
 """
 
 import json
-from typing import Any, Dict, List
-
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+from typing import Any, Dict, List, TypedDict
 
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel

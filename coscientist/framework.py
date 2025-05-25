@@ -5,15 +5,10 @@ a task queue, and assigns tasks to Agents.
 
 import asyncio
 import json
-from typing import Any, Dict, List, Optional, Union
-
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional, TypedDict, Union
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
@@ -126,6 +121,8 @@ class CoScientistFramework:
         self.max_concurrent_tasks = max_concurrent_tasks
 
         # Build all agent graphs
+        # TODO: Add the plan configuration agent
+        # TODO: Add the literature review agent
         self.agents = {
             AgentType.GENERATION: {
                 "independent": build_independent_generation_agent(

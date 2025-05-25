@@ -20,12 +20,7 @@ overview can match the style of a review paper or a grant proposal
 that are relevant to the research plan.
 """
 
-from typing import List
-
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+from typing import List, TypedDict
 
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel

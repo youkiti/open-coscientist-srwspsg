@@ -18,12 +18,7 @@ and feedback from the meta-review agent.
 
 import json
 import os
-from typing import List, Tuple
-
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+from typing import List, Tuple, TypedDict
 
 from langchain.chat_models import init_chat_model
 from langchain.prompts import PromptTemplate

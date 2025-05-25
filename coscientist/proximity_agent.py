@@ -4,12 +4,7 @@ Proximity agent
 - Calculates similarity between hypotheses and builds a graph
 """
 
-from typing import List, Set
-
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+from typing import List, Set, TypedDict
 
 import networkx as nx
 import numpy as np

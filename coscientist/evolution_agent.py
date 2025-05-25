@@ -19,12 +19,7 @@ that should in principle be better.
 """
 
 import json
-from typing import List
-
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+from typing import List, TypedDict
 
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
