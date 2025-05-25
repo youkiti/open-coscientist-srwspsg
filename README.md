@@ -35,7 +35,7 @@ pip install -e .
 ```python
 import asyncio
 from coscientist.framework import CoScientistFramework
-from coscientist.configuration import goal_to_configuration
+from coscientist.configuration_agent import goal_to_configuration
 from langchain_openai import ChatOpenAI
 
 # Initialize with your LLM

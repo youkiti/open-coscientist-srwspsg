@@ -220,7 +220,7 @@ async def main():
     # Initialize the system
     print("\n1. Initializing AI Co-Scientist Framework...")
 
-    from coscientist.configuration import goal_to_configuration
+    from coscientist.configuration_agent import goal_to_configuration
     from coscientist.context_memory import get_context_memory
     from coscientist.framework import CoScientistFramework
 

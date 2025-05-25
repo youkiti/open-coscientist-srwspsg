@@ -4,7 +4,7 @@ from coscientist.generation_agent import (
     CollaborativeState,
     build_collaborative_generation_agent,
 )
-from coscientist.literature_review import review_literature
+from coscientist.literature_review_agent import review_literature
 from coscientist.reasoning_types import ReasoningType
 from coscientist.reflection_agent import (
     ReflectionState,
