@@ -14,23 +14,21 @@ This looks something like multihop reasoning with MCTS.
 - New hypotheses can be generated in later steps conditioned on the past hypotheses
 and feedback from the meta-review agent.
 
+TODO: Web search generation agent. This agent uses web search summaries to generate hypotheses.
+Unclear if these summaries should be compiled once and shared with other generation agents, or
+if it's a completely separate generation mode. My impression is that we should do deep research
+on the topic once at the beginning and the generation web search is just asking a handful of
+additional questions before formalizing a hypothesis.
+TODO: Add fields in the prompts for meta-review agent feedback and prior hypotheses.
 """
 
-import json
-import os
-from typing import List, Tuple, TypedDict
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, TypedDict, Union
 
-from langchain.chat_models import init_chat_model
-from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
-from coscientist.custom_types import (
-    GeneratedHypothesis,
-    LiteratureReview,
-    ResearchPlanConfig,
-)
 from coscientist.reasoning_types import ReasoningType
 
 
@@ -68,7 +66,71 @@ class CollaborativeState(TypedDict):
     finished: bool
 
 
-def independent_generation_node(
+@dataclass
+class IndependentConfig:
+    """Configuration for independent generation mode."""
+
+    field: str
+    reasoning_type: ReasoningType
+    llm: BaseChatModel
+
+
+@dataclass
+class CollaborativeConfig:
+    """Configuration for collaborative generation mode."""
+
+    agent_names: List[str]
+    agent_fields: Dict[str, str]
+    agent_reasoning_types: Dict[str, ReasoningType]
+    llms: Dict[str, BaseChatModel]
+    max_turns: int = 10
+
+
+def build_generation_agent(
+    mode: str,
+    config: Union[IndependentConfig, CollaborativeConfig],
+) -> StateGraph:
+    """
+    Unified builder function for generation agents that supports both independent and collaborative modes.
+
+    Parameters
+    ----------
+    mode : str
+        The mode of operation, either "independent" or "collaborative".
+    config : Union[IndependentConfig, CollaborativeConfig]
+        Configuration object containing all necessary parameters for the selected mode.
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the generation agent.
+
+    Raises
+    ------
+    ValueError
+        If mode is invalid or required parameters are missing for the selected mode.
+    """
+    if mode == "independent":
+        if not isinstance(config, IndependentConfig):
+            raise ValueError("config must be an IndependentConfig instance")
+        return _build_independent_generation_agent(
+            config.field, config.reasoning_type, config.llm
+        )
+    elif mode == "collaborative":
+        if not isinstance(config, CollaborativeConfig):
+            raise ValueError("config must be a CollaborativeConfig instance")
+        return _build_collaborative_generation_agent(
+            config.agent_names,
+            config.agent_fields,
+            config.agent_reasoning_types,
+            config.llms,
+            config.max_turns,
+        )
+    else:
+        raise ValueError("mode must be either 'independent' or 'collaborative'")
+
+
+def _independent_generation_node(
     state: IndependentState,
     field: str,
     reasoning_type: ReasoningType,
@@ -89,7 +151,7 @@ def independent_generation_node(
     return {**state, "hypothesis": response_content}
 
 
-def debater_node(
+def _debater_node(
     state: CollaborativeState,
     field: str,
     reasoning_type: ReasoningType,
@@ -134,7 +196,7 @@ def debater_node(
     return {**state, "transcript": new_transcript}
 
 
-def moderator_node(
+def _moderator_node(
     state: CollaborativeState, agent_names: List[str], max_turns: int = 10
 ) -> CollaborativeState:
     """
@@ -174,7 +236,7 @@ def moderator_node(
     }
 
 
-def build_independent_generation_agent(
+def _build_independent_generation_agent(
     field: str, reasoning_type: ReasoningType, llm: BaseChatModel
 ):
     """
@@ -200,7 +262,7 @@ def build_independent_generation_agent(
     graph = StateGraph(IndependentState)
     graph.add_node(
         "generator",
-        lambda state: independent_generation_node(state, field, reasoning_type, llm),
+        lambda state: _independent_generation_node(state, field, reasoning_type, llm),
     )
     graph.add_edge("generator", END)
 
@@ -208,7 +270,7 @@ def build_independent_generation_agent(
     return graph.compile()
 
 
-def build_collaborative_generation_agent(
+def _build_collaborative_generation_agent(
     agent_names: List[str],
     agent_fields: dict[str, str],
     agent_reasoning_types: dict[str, ReasoningType],
@@ -251,7 +313,7 @@ def build_collaborative_generation_agent(
         # Ensure the lambda correctly captures the 'name' for each node
         graph.add_node(
             name,
-            lambda state, agent_name=name: debater_node(
+            lambda state, agent_name=name: _debater_node(
                 state,
                 agent_fields[agent_name],
                 agent_reasoning_types[agent_name],
@@ -261,7 +323,7 @@ def build_collaborative_generation_agent(
 
     # Add moderator node
     graph.add_node(
-        "moderator", lambda state: moderator_node(state, agent_names, max_turns)
+        "moderator", lambda state: _moderator_node(state, agent_names, max_turns)
     )
 
     # Define transitions: After each debater, go to moderator

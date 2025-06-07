@@ -4,14 +4,12 @@ a task queue, and assigns tasks to Agents.
 """
 
 import asyncio
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, TypedDict, Union
+from typing import Any, Dict, List, Optional, TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langgraph.graph import END, StateGraph
 
 from coscientist.custom_types import HypothesisWithID, ResearchPlanConfig
 from coscientist.evolution_agent import build_evolution_agent
@@ -202,6 +200,7 @@ class CoScientistFramework:
     async def _execute_generation_task(self, task: Task, state: FrameworkState) -> Any:
         """Execute a generation agent task."""
         if task.task_type == "independent_generation":
+            # TODO: Move all local imports to the top of the file
             from coscientist.generation_agent import IndependentState
 
             agent_state = IndependentState(
@@ -279,6 +278,7 @@ class CoScientistFramework:
         if not state["hypotheses"]:
             return {"error": "No hypotheses to evolve"}
 
+        # TODO: Pick random hypotheses instead of top ones
         # Take top 3 hypotheses
         sorted_hypotheses = state["tournament"].get_sorted_hypotheses()
         top_hypotheses = [
@@ -428,6 +428,8 @@ class CoScientistFramework:
             # Add follow-up tasks based on current state
             self._schedule_follow_up_tasks(state)
 
+        # TODO: The meta-review agent shouldn't be executed only once at the end. The
+        # results of meta-review will be fed back to generation, reflection, and evolution agents.
         # Final meta-review
         final_meta_review_task = Task(
             id=self._generate_task_id(),
@@ -454,7 +456,7 @@ class CoScientistFramework:
 
         # Execute tasks concurrently
         if tasks_to_run:
-            results = await asyncio.gather(
+            _ = await asyncio.gather(
                 *[self.execute_task(task, state) for task in tasks_to_run],
                 return_exceptions=True,
             )
@@ -466,6 +468,7 @@ class CoScientistFramework:
 
     def _schedule_follow_up_tasks(self, state: FrameworkState):
         """Schedule follow-up tasks based on current state."""
+        # TODO: We should have the supervisor agent decide on next tasks and priorities.
         num_hypotheses = len(state["hypotheses"])
 
         # Schedule reflection for new hypotheses

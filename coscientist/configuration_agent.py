@@ -2,86 +2,259 @@
 Configuration
 -------------
 - Takes a user prompt and create a configuration for the research plan to be
-executed by the Supervisor.
+executed by the Supervisor through an interactive conversation.
 """
 
-from langchain.prompts import PromptTemplate
+import uuid
+from typing import Sequence, TypedDict
+
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import (
+    BaseMessage,
+    HumanMessage,
+)
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import START, StateGraph
+from langgraph.graph.message import add_messages
+from typing_extensions import Annotated
 
-from coscientist.custom_types import ResearchPlanConfig
-
-_PROMPT = """
-You are an expert in scientific research planning. Given a goal from
-a scientist, parse it into a simple JSON configuration specifying
-the preferences, attributes, and constraints for an effective research plan.
-
-- Preferences: A single sentence or two at most describing the focus for a high-quality research plan.
-- Attributes: A list of up to 5 important attributes that the research plan should possess.
-- Constraints: A list of up to 5 constraints that the research plan must satisfy.
-
-For example, given the following goal:
-
-Scientist research goal:
-Develop a novel hypothesis for the key factor or process which causes ALS related to phosphorylation of a Nuclear Pore
-Complex (NPC) nucleoporin. Explain mechanism of action in detail. Include also a feasible experiment to test the
-hypothesis.
-
-A valid parsed research plan configuration in JSON is:
-
-{
-  "preferences": "Focus on providing a novel hypothesis, with detailed explanation of the mechanism of action.",
-  "attributes": ["Novelty", "Feasibility"],
-  "constraints": ["Should be correct", "Should be novel"]
-}
-"""
+from coscientist.common import load_prompt
 
 
-def get_configuration_prompt(goal: str) -> str:
+class ConfigurationState(TypedDict):
     """
-    Create a research plan configuration from a goal using LangChain.
+    Represents the state of the interactive configuration process.
+
+    Uses LangGraph's standard message-based state management for better
+    conversation handling and persistence.
 
     Parameters
     ----------
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+        The conversation messages between agent and user
     goal: str
-        The research goal to parse into a configuration
-
-    Returns
-    -------
-    str
-        The configuration parsing prompt
+        The initial research goal to refine
+    refined_goal: str
+        The final refined goal (set when process is complete)
+    is_complete: bool
+        Whether the configuration process is complete
     """
-    prompt_to_format = """Now, parse the following goal into a
-    research plan configuration:
 
-    Scientist research goal
-    {goal}
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    goal: str
+    refined_goal: str
+    is_complete: bool
 
-    Parsed research plan configuration
+
+def build_configuration_agent(llm: BaseChatModel) -> StateGraph:
     """
-    # Create the prompt template
-    prompt_template = PromptTemplate(
-        input_variables=["goal"], template=prompt_to_format
-    )
+    Builds and configures a LangGraph for the interactive configuration agent process.
 
-    return "\n".join([_PROMPT, prompt_template.format(goal=goal)])
-
-
-def goal_to_configuration(llm: BaseChatModel, goal: str) -> ResearchPlanConfig:
-    """
-    Creates the prompt and uses the LLM to parse the goal into a configuration.
+    The graph uses LangGraph's built-in message persistence and follows best practices
+    for chatbot development including:
+    - Proper message state management
+    - Built-in checkpointer for conversation persistence
+    - Message trimming for context management
+    - Streaming support
 
     Parameters
     ----------
     llm: BaseChatModel
-        The LLM to use for parsing the goal
-    goal: str
-        The goal to parse into a configuration
+        The language model to use for the agent responses
 
     Returns
     -------
-    ResearchPlanConfig
-        The parsed configuration
+    StateGraph
+        A compiled LangGraph for the interactive configuration agent
     """
-    formatted_prompt = get_configuration_prompt(goal)
-    structured_llm = llm.with_structured_output(ResearchPlanConfig)
-    return structured_llm.invoke(formatted_prompt)
+    # Create the workflow
+    workflow = StateGraph(state_schema=ConfigurationState)
+
+    # Add the configuration node
+    workflow.add_node("configuration", lambda state: _configuration_node(state, llm))
+
+    # Set up the flow
+    workflow.add_edge(START, "configuration")
+
+    # Add memory for conversation persistence
+    memory = InMemorySaver()
+
+    return workflow.compile(checkpointer=memory)
+
+
+def _configuration_node(
+    state: ConfigurationState, llm: BaseChatModel
+) -> ConfigurationState:
+    """
+    Node that processes the conversation and generates the agent's response.
+    """
+    prompt = load_prompt("research_config", goal=state["goal"])
+    prompt_template = ChatPromptTemplate.from_messages(
+        [("system", prompt), MessagesPlaceholder(variable_name="messages")]
+    )
+    response = llm.invoke(prompt_template.invoke(state))
+
+    # Check if this is a final goal statement
+    is_complete = "FINAL GOAL:" in response.content
+    refined_goal = state.get("refined_goal", "")
+
+    if is_complete:
+        # Extract the final goal
+        try:
+            refined_goal = response.content.split("FINAL GOAL:")[1].strip()
+        except IndexError:
+            # Fallback if parsing fails
+            refined_goal = response.content
+
+    return {
+        "messages": [response],
+        "goal": state["goal"],
+        "refined_goal": refined_goal,
+        "is_complete": is_complete,
+    }
+
+
+class ConfigurationChatManager:
+    """
+    Manages the interactive chat process for configuration refinement.
+
+    This class handles the conversation flow between the user and the configuration
+    agent, maintaining state and managing the workflow execution until completion.
+
+    Parameters
+    ----------
+    llm : BaseChatModel
+        The language model to use for agent responses
+    research_goal : str
+        The initial research goal to be refined through conversation
+    """
+
+    def __init__(self, llm: BaseChatModel, research_goal: str):
+        """
+        Initialize the chat manager with an LLM and research goal.
+
+        Parameters
+        ----------
+        llm : BaseChatModel
+            The language model for the configuration agent
+        research_goal : str
+            The initial research goal to refine
+        """
+        self.llm = llm
+        self.research_goal = research_goal
+        self.agent = build_configuration_agent(llm)
+        self.config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+        self.current_state = None
+        self.is_complete = False
+        self.refined_goal = ""
+
+        # Initialize the conversation
+        self._initialize_conversation()
+
+    def _initialize_conversation(self):
+        """Initialize the conversation with the research goal."""
+        initial_state = ConfigurationState(
+            messages=[], goal=self.research_goal, refined_goal="", is_complete=False
+        )
+        self.current_state = self.agent.invoke(initial_state, self.config)
+        self.is_complete = self.current_state.get("is_complete", False)
+        self.refined_goal = self.current_state.get("refined_goal", "")
+
+    def send_human_message(self, message: str) -> str:
+        """
+        Send a human message to the agent and get the response.
+
+        Parameters
+        ----------
+        message : str
+            The human message to send to the agent
+
+        Returns
+        -------
+        str
+            The agent's response message
+
+        Raises
+        ------
+        RuntimeError
+            If the conversation is already complete
+        """
+        if self.is_complete:
+            raise RuntimeError(
+                "Conversation is already complete. The refined goal is available."
+            )
+
+        # Send human message to the agent
+        input_messages = [HumanMessage(message)]
+        output = self.agent.invoke({"messages": input_messages}, self.config)
+
+        # Update state
+        self.current_state = output
+        self.is_complete = output.get("is_complete", False)
+        self.refined_goal = output.get("refined_goal", "")
+
+        # Get the latest AI message
+        messages = output.get("messages", [])
+        if messages:
+            latest_message = messages[-1]
+            if hasattr(latest_message, "content"):
+                return latest_message.content
+
+        return "No response received from agent."
+
+    def get_latest_agent_message(self) -> str:
+        """
+        Get the latest message from the agent.
+
+        Returns
+        -------
+        str
+            The latest agent message content
+        """
+        if not self.current_state:
+            return "No messages yet."
+
+        messages = self.current_state.get("messages", [])
+        if messages:
+            latest_message = messages[-1]
+            if hasattr(latest_message, "content"):
+                return latest_message.content
+
+        return "No agent messages found."
+
+    def is_conversation_complete(self) -> bool:
+        """
+        Check if the configuration conversation is complete.
+
+        Returns
+        -------
+        bool
+            True if the conversation is complete, False otherwise
+        """
+        return self.is_complete
+
+    def get_refined_goal(self) -> str:
+        """
+        Get the refined research goal.
+
+        Returns
+        -------
+        str
+            The refined goal if conversation is complete, empty string otherwise
+        """
+        return self.refined_goal if self.is_complete else ""
+
+    def get_conversation_history(self) -> Sequence[BaseMessage]:
+        """
+        Get the full conversation history.
+
+        Returns
+        -------
+        Sequence[BaseMessage]
+            All messages in the conversation
+        """
+        if not self.current_state:
+            return []
+
+        return self.current_state.get("messages", [])

@@ -16,11 +16,8 @@ against each other. New and top-ranked hypotheses are prioritized.
 """
 
 import itertools  # Add itertools for combinations
-import math
-import re  # Add re for parsing
-from typing import Any, Dict, List, Optional, Set, Tuple  # Add Optional
+from typing import Dict, List, Optional, Tuple  # Add Optional
 
-from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
 from tqdm import tqdm
@@ -32,7 +29,7 @@ from coscientist.custom_types import HypothesisWithID
 DEFAULT_ELO = 1200
 K_FACTOR = 32
 
-
+# TODO: Use the markdown file prompt template `tournament.md` instead of these strings
 TOURNAMENT_PROMPT = """
 You are an expert evaluator tasked with comparing two hypotheses.
 
@@ -65,6 +62,7 @@ Review of hypothesis 2:
 Reasoning and conclusion (end with "better hypothesis: <1 or 2>"):
 """
 
+# TODO: Use the markdown file prompt template `simulated_debate.md` instead of these strings
 SIMULATED_DEBATE_PROMPT = """
 You are an expert in comparative analysis, simulating a panel of domain experts
 engaged in a structured discussion to evaluate two competing hypotheses.
@@ -286,7 +284,6 @@ class EloTournament:
                 # If no history, run the match
                 winner, debate = self._determine_winner(hypo1, hypo2, TOURNAMENT_PROMPT)
 
-                winner_id = id1 if winner == 1 else id2
                 self.match_history[pair] = MatchResult(
                     id1=id1, id2=id2, winner=winner, debate=debate
                 )
