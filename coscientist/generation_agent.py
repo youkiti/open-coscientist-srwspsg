@@ -20,6 +20,7 @@ if it's a completely separate generation mode. My impression is that we should d
 on the topic once at the beginning and the generation web search is just asking a handful of
 additional questions before formalizing a hypothesis.
 TODO: Add fields in the prompts for meta-review agent feedback and prior hypotheses.
+TODO: Consider treating the collaborative generation as a chatbot with Memory using LangGraph.
 """
 
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from typing import Dict, List, Tuple, TypedDict, Union
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
+from pydantic import BaseModel, Field
 
 from coscientist.common import load_prompt
 from coscientist.reasoning_types import ReasoningType
@@ -56,6 +58,8 @@ class CollaborativeState(TypedDict):
         The name of the agent who will speak next.
     finished: bool
         Flag indicating whether the debate has concluded.
+    hypothesis: str
+        The standardized hypothesis output after the debate concludes.
     """
 
     goal: str
@@ -64,6 +68,17 @@ class CollaborativeState(TypedDict):
     turn: int
     next_agent: str
     finished: bool
+    hypothesis: str
+
+
+class ParsedHypothesis(BaseModel):
+    """Structured output for parsed hypothesis."""
+
+    hypothesis: str = Field(description="The main hypothesis statement")
+    reasoning: str = Field(
+        description="The reasoning and justification for the hypothesis"
+    )
+    assumptions: str = Field(description="The assumptions and falsifiable predictions")
 
 
 @dataclass
@@ -83,6 +98,7 @@ class CollaborativeConfig:
     agent_fields: Dict[str, str]
     agent_reasoning_types: Dict[str, ReasoningType]
     llms: Dict[str, BaseChatModel]
+    standardization_llm: BaseChatModel
     max_turns: int = 10
 
 
@@ -124,6 +140,7 @@ def build_generation_agent(
             config.agent_fields,
             config.agent_reasoning_types,
             config.llms,
+            config.standardization_llm,
             config.max_turns,
         )
     else:
@@ -221,7 +238,7 @@ def _moderator_node(
     """
     last_message = state["transcript"][-1][1] if state["transcript"] else ""
 
-    if "HYPOTHESIS" in last_message or state["turn"] >= max_turns:
+    if "FINAL HYPOTHESIS:" in last_message or state["turn"] >= max_turns:
         return {**state, "finished": True, "next_agent": ""}
 
     # Simple round-robin for now
@@ -234,6 +251,37 @@ def _moderator_node(
         "next_agent": agent_names[next_agent_index],
         "turn": state["turn"] + 1,
     }
+
+
+def _standardize_hypothesis_node(
+    state: CollaborativeState, llm: BaseChatModel
+) -> CollaborativeState:
+    """
+    Standardizes the hypothesis from the debate transcript using the standardize_hypothesis.md prompt.
+
+    This function processes the complete debate transcript to extract and standardize
+    the final hypothesis that was agreed upon by the experts.
+
+    Parameters
+    ----------
+    state : CollaborativeState
+        The current state of the debate (should have finished=True).
+    llm : BaseChatModel
+        The language model to use for standardization.
+
+    Returns
+    -------
+    CollaborativeState
+        The updated debate state with the standardized hypothesis.
+    """
+    # Convert transcript to string format
+    transcript_str = "\n".join([f"{name}: {msg}" for name, msg in state["transcript"]])
+
+    # Load and invoke the standardize_hypothesis prompt
+    prompt = load_prompt("standardize_hypothesis", transcript=transcript_str)
+    response_content = llm.invoke(prompt).content
+
+    return {**state, "hypothesis": response_content}
 
 
 def _build_independent_generation_agent(
@@ -275,6 +323,7 @@ def _build_collaborative_generation_agent(
     agent_fields: dict[str, str],
     agent_reasoning_types: dict[str, ReasoningType],
     llms: dict[str, BaseChatModel],
+    standardization_llm: BaseChatModel,
     max_turns: int = 10,
 ):
     """
@@ -293,6 +342,8 @@ def _build_collaborative_generation_agent(
         Dictionary mapping agent names to their reasoning types.
     llms : dict[str, BaseChatModel]
         Dictionary mapping agent names to their respective language models.
+    standardization_llm : BaseChatModel
+        The language model to use for standardization.
     max_turns : int, optional
         Maximum number of turns allowed in the debate, by default 10.
 
@@ -326,21 +377,30 @@ def _build_collaborative_generation_agent(
         "moderator", lambda state: _moderator_node(state, agent_names, max_turns)
     )
 
+    # Add standardization node
+    graph.add_node(
+        "standardizer",
+        lambda state: _standardize_hypothesis_node(state, standardization_llm),
+    )
+
     # Define transitions: After each debater, go to moderator
     for name in agent_names:
         graph.add_edge(name, "moderator")
 
+    # Add edge from standardizer to END
+    graph.add_edge("standardizer", END)
+
     # Conditional edges from moderator
     def route_after_moderator(state: CollaborativeState):
         if state["finished"]:
-            return END
+            return "standardizer"
         return state["next_agent"]
 
     graph.add_conditional_edges(
         "moderator",
         route_after_moderator,
         # Provide a mapping from the output of route_after_moderator to node names
-        {name: name for name in agent_names + [END]},
+        {name: name for name in agent_names} | {"standardizer": "standardizer"},
     )
 
     # Set entry point
@@ -350,3 +410,84 @@ def _build_collaborative_generation_agent(
     graph.set_entry_point(agent_names[0])
 
     return graph.compile()
+
+
+def parse_generation_output(text: str, llm: BaseChatModel) -> ParsedHypothesis:
+    """
+    Parse free-form generation agent output into structured fields.
+
+    Parameters
+    ----------
+    text : str
+        The free-form text output from the generation agent
+    llm : BaseChatModel
+        The language model to use for parsing
+
+    Returns
+    -------
+    ParsedHypothesis
+        Structured output with hypothesis, reasoning, and assumptions fields
+    """
+    structured_llm = llm.with_structured_output(ParsedHypothesis)
+
+    prompt = f"""Parse the following scientific text into structured components:
+
+    {text}
+
+    Extract:
+    1. The main hypothesis statement
+    2. The reasoning and justification 
+    3. The assumptions and falsifiable predictions
+
+    If any section is missing, provide an empty string for that field."""
+
+    return structured_llm.invoke(prompt)
+
+
+def parse_hypothesis_markdown(markdown_text: str) -> ParsedHypothesis:
+    """
+    Parse markdown text with # headings to extract Hypothesis, Reasoning, and Assumptions sections.
+
+    Parameters
+    ----------
+    markdown_text : str
+        Markdown text containing sections with # headings for Hypothesis, Reasoning, and Assumptions
+
+    Returns
+    -------
+    ParsedHypothesis
+        Structured output with hypothesis, reasoning, and assumptions fields extracted from markdown
+    """
+    # Split the text by # to get sections
+    sections = markdown_text.split("#")
+
+    # Initialize fields
+    hypothesis = ""
+    reasoning = ""
+    assumptions = ""
+
+    # Process each section
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        # Split section into title and content
+        lines = section.split("\n", 1)
+        if len(lines) < 2:
+            continue
+
+        title = lines[0].strip().lower()
+        content = lines[1].strip()
+
+        # Match section titles (case-insensitive)
+        if "hypothesis" in title:
+            hypothesis = content
+        elif "reasoning" in title:
+            reasoning = content
+        elif "assumption" in title:  # Matches both "Assumption" and "Assumptions"
+            assumptions = content
+
+    return ParsedHypothesis(
+        hypothesis=hypothesis, reasoning=reasoning, assumptions=assumptions
+    )
