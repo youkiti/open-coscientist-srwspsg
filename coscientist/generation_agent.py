@@ -28,10 +28,10 @@ from typing import Dict, List, TypedDict, Union
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
-from pydantic import BaseModel, Field
 
 from coscientist import multiturn
 from coscientist.common import load_prompt
+from coscientist.custom_types import ParsedHypothesis
 from coscientist.reasoning_types import ReasoningType
 
 
@@ -43,16 +43,6 @@ class IndependentState(TypedDict):
 
 class CollaborativeState(IndependentState, multiturn.MultiTurnState):
     pass
-
-
-class ParsedHypothesis(BaseModel):
-    """Structured output for parsed hypothesis."""
-
-    hypothesis: str = Field(description="The main hypothesis statement")
-    reasoning: str = Field(
-        description="The reasoning and justification for the hypothesis"
-    )
-    assumptions: str = Field(description="The assumptions and falsifiable predictions")
 
 
 @dataclass
@@ -211,38 +201,6 @@ def _build_collaborative_generation_agent(
     return multiturn.build_multi_turn_agent(
         CollaborativeState, agent_node_fns, moderator_fn, post_processor_fn
     )
-
-
-def parse_generation_output(text: str, llm: BaseChatModel) -> ParsedHypothesis:
-    """
-    Parse free-form generation agent output into structured fields.
-
-    Parameters
-    ----------
-    text : str
-        The free-form text output from the generation agent
-    llm : BaseChatModel
-        The language model to use for parsing
-
-    Returns
-    -------
-    ParsedHypothesis
-        Structured output with hypothesis, reasoning, and assumptions fields
-    """
-    structured_llm = llm.with_structured_output(ParsedHypothesis)
-
-    prompt = f"""Parse the following scientific text into structured components:
-
-    {text}
-
-    Extract:
-    1. The main hypothesis statement
-    2. The reasoning and justification 
-    3. The assumptions and falsifiable predictions
-
-    If any section is missing, provide an empty string for that field."""
-
-    return structured_llm.invoke(prompt)
 
 
 def parse_hypothesis_markdown(markdown_text: str) -> ParsedHypothesis:

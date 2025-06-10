@@ -49,3 +49,13 @@ class HypothesisWithID(BaseModel):
     id: int
     content: str
     review: str
+
+
+class ParsedHypothesis(BaseModel):
+    """Structured output for parsed hypothesis."""
+
+    hypothesis: str = Field(description="The main hypothesis statement")
+    reasoning: str = Field(
+        description="The reasoning and justification for the hypothesis"
+    )
+    assumptions: str = Field(description="The assumptions and falsifiable predictions")
