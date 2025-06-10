@@ -22,6 +22,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
 from tqdm import tqdm
 
+from coscientist import multiturn
 from coscientist.common import load_prompt
 from coscientist.custom_types import HypothesisWithID
 
@@ -29,95 +30,44 @@ from coscientist.custom_types import HypothesisWithID
 DEFAULT_ELO = 1200
 K_FACTOR = 32
 
-# TODO: Use the markdown file prompt template `tournament.md` instead of these strings
-TOURNAMENT_PROMPT = """
-You are an expert evaluator tasked with comparing two hypotheses.
 
-Evaluate the two provided hypotheses (hypothesis 1 and hypothesis 2) and determine which one
-is superior based on the specified {idea_attributes}.
-Provide a concise rationale for your selection, concluding with the phrase "better idea: <1 or 2>".
+class DebateState(multiturn.MultiTurnState):
+    goal: str
+    hypothesis_1: str
+    hypothesis_2: str
+    review_1: str
+    review_2: str
 
-Goal: {goal}
 
-Evaluation criteria:
-{preferences}
+def _build_debate_agent(
+    agent_names: List[str],
+    llms: Dict[str, BaseChatModel],
+    max_turns: int = 10,
+) -> DebateState:
+    """Build collaborative generation agent."""
 
-Considerations:
-{notes}
-Each hypothesis includes an independent review. These reviews may contain numerical scores.
-Disregard these scores in your comparative analysis, as they may not be directly comparable across reviews.
+    # Create agent node functions
+    agent_node_fns = {}
+    for agent_name in agent_names:
+        agent_node_fns[agent_name] = multiturn.create_agent_node_fn(
+            agent_name=agent_name,
+            llm=llms[agent_name],
+            prompt_name="simulated_debate",
+            prompt_keys_from_state=[
+                "goal",
+                "hypothesis_1",
+                "hypothesis_2",
+                "review_1",
+                "review_2",
+            ],
+        )
 
-Hypothesis 1:
-{hypothesis_1}
+    # Create moderator and post-processor
+    moderator_fn = multiturn.create_moderator_node_fn(
+        agent_names, lambda msg: "WINNER:" in msg, max_turns
+    )
 
-Hypothesis 2:
-{hypothesis_2}
-
-Review of hypothesis 1:
-{review_1}
-
-Review of hypothesis 2:
-{review_2}
-
-Reasoning and conclusion (end with "better hypothesis: <1 or 2>"):
-"""
-
-# TODO: Use the markdown file prompt template `simulated_debate.md` instead of these strings
-SIMULATED_DEBATE_PROMPT = """
-You are an expert in comparative analysis, simulating a panel of domain experts
-engaged in a structured discussion to evaluate two competing hypotheses.
-The objective is to rigorously determine which hypothesis is superior based on
-a predefined set of attributes and criteria.
-The experts possess no pre-existing biases toward either hypothesis and are solely
-focused on identifying the optimal choice, given that only one can be implemented.
-
-Goal: {goal}
-Criteria for hypothesis superiority:
-{preferences}
-
-Hypothesis 1:
-{hypothesis_1}
-
-Hypothesis 2:
-{hypothesis_2}
-
-Initial review of hypothesis 1:
-{review_1}
-
-Initial review of hypothesis 2:
-{review_2}
-
-Debate procedure:
-
-The discussion will unfold in a series of turns, typically ranging from 3 to 5, with a maximum of 10.
-
-Turn 1: begin with a concise summary of both hypotheses and their respective initial reviews.
-
-Subsequent turns:
-
-* Pose clarifying questions to address any ambiguities or uncertainties.
-* Critically evaluate each hypothesis in relation to the stated Goal and Criteria.
-This evaluation should consider aspects such as:
-- Potential for correctness/validity.
-- Utility and practical applicability.
-- Sufficiency of detail and specificity.
-- Novelty and originality.
-- Desirability for implementation.
-* Identify and articulate any weaknesses, limitations, or potential flaws in either hypothesis.
-
-Additional notes:
-{notes}
-
-Termination and judgment:
-
-Once the discussion has reached a point of sufficient depth (typically 3-5 turns, up to 10 turns)
-and all relevant questions and concerns have been thoroughly addressed, provide a conclusive judgment.
-This judgment should succinctly state the rationale for the selection.
-Then, indicate the superior hypothesis by writing the phrase "better hypothesis: ",
-followed by "1" (for hypothesis 1) or "2" (for hypothesis 2).
-
-Debate:
-"""
+    return multiturn.build_multi_turn_agent(DebateState, agent_node_fns, moderator_fn)
 
 
 def calculate_expected_score(rating1: float, rating2: float) -> tuple[float, float]:
@@ -176,15 +126,9 @@ class EloTournament:
         self,
         llm: BaseChatModel,
         goal: str,
-        preferences: str,
-        notes: str,
-        idea_attributes: List[str] = [],
     ):
         self.llm = llm
         self.goal = goal
-        self.preferences = preferences
-        self.notes = notes
-        self.idea_attributes = ", ".join(idea_attributes)
         self.hypotheses: Dict[str, HypothesisWithID] = {}  # id -> Hypothesis object
         self.ratings: Dict[str, float] = {}  # id -> ELO rating
         self.match_history: Dict[Tuple[int, int, int], MatchResult] = {}
@@ -207,7 +151,7 @@ class EloTournament:
         self,
         hypo1: HypothesisWithID,
         hypo2: HypothesisWithID,
-        prompt_template: str,
+        prompt_name: str,
     ) -> Tuple[int, str]:
         """
         Uses the LLM with a specific prompt to determine the winner between two hypotheses.
@@ -218,8 +162,8 @@ class EloTournament:
             The first hypothesis.
         hypo2 : HypothesisWithID
             The second hypothesis.
-        prompt_template : str
-            The template for the prompt.
+        prompt_name : str
+            The name of the prompt template to use (e.g., 'tournament').
 
         Returns
         -------
@@ -230,28 +174,36 @@ class EloTournament:
         # Prepare inputs based on the prompt template structure
         prompt_input = {
             "goal": self.goal,
-            "preferences": self.preferences,
-            "notes": self.notes,
             "hypothesis_1": hypo1.content,
             "hypothesis_2": hypo2.content,
             "review_1": hypo1.review,
             "review_2": hypo2.review,
-            "idea_attributes": self.idea_attributes,
         }
 
         # Load and format the prompt
-        formatted_prompt = load_prompt(prompt_template, **prompt_input)
-        response = self.llm.invoke(formatted_prompt)
-        response_text = (
-            response
-            if isinstance(response, str)
-            else getattr(response, "content", str(response))
-        )
+        if prompt_name == "tournament":
+            formatted_prompt = load_prompt(prompt_name, **prompt_input)
+            response_text = self.llm.invoke(formatted_prompt).content
+        elif prompt_name == "simulated_debate":
+            agent = _build_debate_agent(
+                agent_names=["scientist"], llms={"scientist": self.llm}, max_turns=10
+            )
+            initial_state = DebateState(
+                transcript=[],
+                turn=0,
+                next_agent="scientist",
+                finished=False,
+                **prompt_input,
+            )
+            final_state = agent.invoke(initial_state)
+            response_text = "\n".join(
+                [f"{name}: {msg}" for name, msg in final_state["transcript"]]
+            )
+        else:
+            raise ValueError(f"Invalid prompt name: {prompt_name}")
 
         # Parse the response to find the winner
-        # Look for "better idea: 1", "better idea: 2", "better hypothesis: 1", etc.
-        # Also handles simple "<1>" or "<2>" responses.
-        winner_str = response_text.split(":")[-1]
+        winner_str = response_text.split("WINNER:")[-1].strip()
         assert ("1" in winner_str) ^ (
             "2" in winner_str
         ), f"Invalid winner string: {winner_str}"
@@ -282,7 +234,7 @@ class EloTournament:
             previous_outcome = self.match_history.get(pair, None)
             if previous_outcome is None:
                 # If no history, run the match
-                winner, debate = self._determine_winner(hypo1, hypo2, TOURNAMENT_PROMPT)
+                winner, debate = self._determine_winner(hypo1, hypo2, "tournament")
 
                 self.match_history[pair] = MatchResult(
                     id1=id1, id2=id2, winner=winner, debate=debate
@@ -343,7 +295,7 @@ class EloTournament:
                 if previous_outcome is None:
                     # Pair hasn't played, run the LLM
                     winner, debate = self._determine_winner(
-                        hypo1, hypo2, SIMULATED_DEBATE_PROMPT
+                        hypo1, hypo2, "simulated_debate"
                     )
 
                     winner_id = id1 if winner == 1 else id2

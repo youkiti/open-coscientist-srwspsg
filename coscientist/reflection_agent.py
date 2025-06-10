@@ -14,11 +14,12 @@ data that would be explained by the hypothesis.
 action or experiment.
 - Tournament review uses the output from the Ranking agent to find
 recurring issues and opportunities for improvement.
+TODO: Break the assumptions from the generation agent into additional assumptions
+and sub-assumptions.
 """
 
 from typing import TypedDict
 
-from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
@@ -40,6 +41,8 @@ class ReflectionState(TypedDict):
     """
 
     hypothesis: str
+    reasoning: str
+    assumptions: str
     initial_filter_assessment: str
     passed_initial_filter: bool
     verification_result: str
@@ -97,38 +100,6 @@ def deep_verification_node(
     return {**state, "verification_result": response.content}
 
 
-def observation_review_node(
-    state: ReflectionState, llm: BaseChatModel
-) -> ReflectionState:
-    """
-    Reviews hypothesis against existing observations to assess explanatory power.
-
-    Parameters
-    ----------
-    state: ReflectionState
-        Current reflection state
-    llm: BaseChatModel
-        Language model for observation review
-
-    Returns
-    -------
-    ReflectionState
-        Updated state with observation review
-    """
-    try:
-        prompt = load_prompt("observation_reflection", hypothesis=state["hypothesis"])
-        response = llm.invoke(prompt)
-
-        # Add observation review to existing verification result
-        observation_review = response.content
-        enhanced_result = f"{state.get('verification_result', '')}\n\nObservation Review:\n{observation_review}"
-
-        return {**state, "verification_result": enhanced_result}
-    except Exception:
-        # If observation review fails, return state unchanged
-        return state
-
-
 def build_reflection_agent(llm: BaseChatModel):
     """
     Builds and configures a LangGraph for the reflection agent process.
@@ -155,9 +126,6 @@ def build_reflection_agent(llm: BaseChatModel):
     graph.add_node(
         "deep_verification", lambda state: deep_verification_node(state, llm)
     )
-    graph.add_node(
-        "observation_review", lambda state: observation_review_node(state, llm)
-    )
 
     # Define transitions
     def route_after_desk_reject(state: ReflectionState):
@@ -165,17 +133,13 @@ def build_reflection_agent(llm: BaseChatModel):
             return "deep_verification"
         return END
 
-    def route_after_verification(state: ReflectionState):
-        return "observation_review"
-
     graph.add_conditional_edges(
         "desk_reject",
         route_after_desk_reject,
         {"deep_verification": "deep_verification", END: END},
     )
 
-    graph.add_edge("deep_verification", "observation_review")
-    graph.add_edge("observation_review", END)
+    graph.add_edge("deep_verification", END)
 
     # Set entry point
     graph.set_entry_point("desk_reject")

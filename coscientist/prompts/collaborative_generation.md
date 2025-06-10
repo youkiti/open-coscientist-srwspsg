@@ -29,7 +29,7 @@ For subsequent contributions that continue an existing discussion:
 * Propose concrete improvements and refinements to address identified weaknesses.
 * Conclude your response with a refined iteration of the hypothesis.
 
-When sufficient discussion has transpired (typically 3-5 conversational turns, with a maximum of 10 turns) and all relevant questions and points have been thoroughly addressed and clarified, conclude the process by writing "FINAL HYPOTHESIS:" (in all capital letters) followed by a self-contained exposition of the single best final idea.
+When sufficient discussion has transpired (typically 3-5 conversational turns, with a maximum of 10 turns) and all relevant questions and points have been thoroughly addressed and clarified, conclude the process by writing "FINAL HYPOTHESIS:" (in all capital letters) followed by a self-contained exposition of the single best final idea. Do not write anything after the statement of the final hypothesis.
 
 #BEGIN TRANSCRIPT#
 {{ transcript }}
