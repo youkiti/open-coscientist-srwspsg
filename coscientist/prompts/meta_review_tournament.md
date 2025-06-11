@@ -9,5 +9,8 @@ You are an expert in scientific research and meta-analysis. Synthesize a compreh
 # Goal
 {{ goal }}
 
+# Hypothesis and Elo ratings
+{{ ratings }}
+
 # Provided reviews for meta-analysis
-{{ reviews }}
+{{ debates }}

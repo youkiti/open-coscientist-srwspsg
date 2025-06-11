@@ -23,12 +23,13 @@ Hypothesis 1 vs Hypothesis 2. Should also specify something like which round
 a debate is from?
 """
 
-from typing import List, TypedDict
+from typing import TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
+from coscientist.ranking_agent import EloTournament
 
 
 class MetaReviewTournamentState(TypedDict):
@@ -37,7 +38,7 @@ class MetaReviewTournamentState(TypedDict):
     """
 
     goal: str
-    debates: List[str]
+    tournament: EloTournament
     result: str
 
 
@@ -46,17 +47,32 @@ def _meta_review_node(
     llm: BaseChatModel,
 ) -> MetaReviewTournamentState:
     """
-    Meta-review node that synthesizes debates into a comprehensive meta-analysis.
+    Meta-review node that synthesizes tournament data into a comprehensive meta-analysis.
     """
-    # Convert list of debates to formatted string
-    reviews_text = "\n\n".join(
-        [f"Review {i+1}:\n{debate}" for i, debate in enumerate(state["debates"])]
-    )
+    tournament = state["tournament"]
+
+    # Build ratings text - hypotheses sorted by ELO rating (highest to lowest)
+    sorted_hypotheses = tournament.get_sorted_hypotheses()
+    ratings_entries = []
+    for hyp_id, rating in sorted_hypotheses:
+        hypothesis = tournament.hypotheses[hyp_id]
+        ratings_entries.append(
+            f"Hypothesis {hyp_id} (ELO: {rating:.2f}): {hypothesis.content}"
+        )
+    ratings_text = "\n".join(ratings_entries)
+
+    # Build debates text from match history
+    debates_entries = []
+    for i, match_result in enumerate(tournament.match_history.values(), 1):
+        debate_header = f"Debate {i}: Hypothesis {match_result.id1} vs Hypothesis {match_result.id2} (Winner: {match_result.winner})"
+        debates_entries.append(f"{debate_header}\n{match_result.debate}")
+    debates_text = "\n\n".join(debates_entries)
 
     prompt = load_prompt(
         "meta_review_tournament",
         goal=state["goal"],
-        reviews=reviews_text,
+        ratings=ratings_text,
+        debates=debates_text,
     )
     response_content = llm.invoke(prompt).content
     return {**state, "result": response_content}
