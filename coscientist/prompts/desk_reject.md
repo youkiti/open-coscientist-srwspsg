@@ -2,8 +2,7 @@ You are an expert in scientific hypothesis evaluation. Your task is to analyze a
 
 # Instructions
 
-1. Correctness: Assess if the hypothesis is consistent with your extensive knowledge of the field.
-Your primary concern is plausibility the hypothesis itself may be speculative and unproven.
+1. Correctness: Assess if the hypothesis is consistent with your extensive knowledge of the field. Your primary concern is plausibility the hypothesis itself may be speculative and unproven.
 2. Novelty: Assess if the hypothesis is a meaningfully new idea.
 3. Quality: A high-quality hypothesis is well-motivated, clear, concise, and scientifically sound.
 
