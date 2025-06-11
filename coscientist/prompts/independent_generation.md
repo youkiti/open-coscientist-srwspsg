@@ -16,4 +16,4 @@ You have conducted a thorough review of relevant literature. The articles consul
 3. Reason through the implications of your hypothesis step-by-step. Build a strong case for why your hypothesis is supported by evidence and likely to be true.
 4. Finally, make a nested list of key assumptions and sub-assumptions that are implicit or explicit in your hypothesis and reasoning.
 
-Your response should therefore have the following sections in markdown: Evidence, Hypothesis, Reasoning, Assumptions. Do not write summaries for any of the sections.
+Your response should therefore have the following headings in markdown: # Evidence, # Hypothesis, # Reasoning, # Assumptions. Do not write summaries for any of the sections.

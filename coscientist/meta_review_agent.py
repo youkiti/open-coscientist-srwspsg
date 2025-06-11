@@ -16,19 +16,15 @@ areas to follow up with real and specific experiments. This
 gets fed to the Generation agent in later rounds. Format of the
 overview can match the style of a review paper or a grant proposal
 (like an NIH Specific Aims Page).
-- Creates a list of research contacts from authors of papers
-that are relevant to the research plan.
 """
 
 from typing import List, TypedDict
 
-from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
 from coscientist.custom_types import (
-    HypothesisWithID,
     LiteratureReview,
     ResearchPlanConfig,
 )

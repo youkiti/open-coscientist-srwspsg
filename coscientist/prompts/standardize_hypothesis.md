@@ -5,7 +5,7 @@ You are scientist who is summarizing a discussion between two other experts.
 2. Extract the main arguments and reasons put forward in support of this hypothesis.
 3. Extract the assumptions that were mentioned as a nested list with appropriate sub-assumptions.
 
-Write your summary in markdown the following sections: Hypothesis, Reasoning, Assumptions. Do not write summaries for any of these. You can re-order and reformat the text as you see fit, but do not change the scientific content and prefer copying text verbatim in it's entirety.
+Write your summary in markdown with the following headings: # Hypothesis, # Reasoning, # Assumptions. Do not write summaries for any of these. You can re-order and reformat the text as you see fit, but do not change the scientific content and prefer copying text verbatim in it's entirety.
 
 #BEGIN TRANSCRIPT#
 {{ transcript }}
