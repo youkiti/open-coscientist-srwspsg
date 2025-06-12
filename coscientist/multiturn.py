@@ -38,7 +38,7 @@ def create_agent_node_fn(
 
         # Add prompt keys from state
         for key in prompt_keys_from_state:
-            prompt_kwargs[key] = state[key]
+            prompt_kwargs[key] = state.get(key, "Not Available")
 
         # Generate response
         prompt = load_prompt(prompt_name, **prompt_kwargs)

@@ -17,6 +17,8 @@ action or experiment.
 recurring issues and opportunities for improvement.
 TODO: Break the assumptions from the generation agent into additional assumptions
 and sub-assumptions.
+TODO: Add the observation reflection and simulation prompts. Figure out how to web search
+for the observations to review.
 """
 
 from typing import TypedDict

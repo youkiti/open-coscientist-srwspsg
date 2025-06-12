@@ -38,6 +38,7 @@ from coscientist.reasoning_types import ReasoningType
 class IndependentState(TypedDict):
     goal: str
     literature_review: str
+    meta_review: str
     result: str
 
 
@@ -122,11 +123,15 @@ def _independent_generation_node(
     Represents the action of a single generation agent using the independent_generation.md template.
     The output is expected to be markdown with sections: Evidence, Hypothesis, Reasoning, Assumptions Table.
     """
+    # Handle meta_review field with fallback
+    meta_review = state.get("meta_review", "Not Available")
+
     prompt = load_prompt(
         "independent_generation",
         goal=state["goal"],
         field=field,
         literature_review=state["literature_review"],
+        meta_review=meta_review,
         reasoning_type=reasoning_type.value,
     )
     response_content = llm.invoke(prompt).content
@@ -184,7 +189,7 @@ def _build_collaborative_generation_agent(
             agent_name=agent_name,
             llm=llms[agent_name],
             prompt_name="collaborative_generation",
-            prompt_keys_from_state=["goal", "literature_review"],
+            prompt_keys_from_state=["goal", "literature_review", "meta_review"],
             # kwargs for the prompt
             field=agent_fields[agent_name],
             reasoning_type=agent_reasoning_types[agent_name].value,
