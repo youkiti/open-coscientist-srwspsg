@@ -18,111 +18,189 @@ divergent from existing ones.
 that should in principle be better.
 """
 
-import json
-from langchain.prompts import PromptTemplate
+from dataclasses import dataclass
+from typing import List, TypedDict, Union
+
 from langchain_core.language_models.chat_models import BaseChatModel
-from coscientist.types import ResearchPlanConfig, GeneratedHypothesis
+from langgraph.graph import END, StateGraph
 
-FEASIBILITY_PROMPT = """
-You are an expert in scientific research and technological feasibility analysis.
-Your task is to refine the provided conceptual idea, enhancing its practical implementability
-by leveraging contemporary technological capabilities. Ensure the revised concept retains
-its novelty, logical coherence, and specific articulation.
-
-Goal: {goal}
-
-Guidelines:
-1. Begin with an introductory overview of the relevant scientific domain.
-2. Provide a concise synopsis of recent pertinent research findings and related investigations,
-highlighting successful methodologies and established precedents.
-3. Articulate a reasoned argument for how current technological advancements can facilitate
-the realization of the proposed concept.
-4. CORE CONTRIBUTION: Develop a detailed, innovative, and technologically viable alternative
-to achieve the objective, emphasizing simplicity and practicality.
-
-Evaluation Criteria:
-{preferences}
-
-Original Conceptualization:
-{hypothesis}
-"""
-
-OUT_OF_THE_BOX_PROMPT = """
-You are an expert researcher tasked with generating a novel, singular hypothesis
-inspired by analogous elements from provided concepts.
-
-Goal: {goal}
-
-Instructions:
-1. Provide a concise introduction to the relevant scientific domain.
-2. Summarize recent findings and pertinent research, highlighting successful approaches.
-3. Identify promising avenues for exploration that may yield innovative hypotheses.
-4. CORE HYPOTHESIS: Develop a detailed, original, and specific single hypothesis
-for achieving the stated goal, leveraging analogous principles from the provided
-ideas. This should not be a mere aggregation of existing methods or entities. Think out-of-the-box.
-
-Criteria for a robust hypothesis:
-{preferences}
-
-Inspiration may be drawn from the following concepts (utilize analogy and inspiration,
-not direct replication):
-{hypotheses}
-"""
+from coscientist.common import load_prompt
 
 
-def evolve_hypothesis(
-    llm: BaseChatModel,
-    goal: str,
-    research_plan_config: ResearchPlanConfig,
-    hypothesis: GeneratedHypothesis,
-) -> GeneratedHypothesis:
+class EvolveFromFeedbackState(TypedDict):
     """
-    Refine a hypothesis for feasibility and practicality using the FEASIBILITY_PROMPT and an LLM.
+    State for the `evolve_from_feedback` prompt agent.
+    """
+
+    goal: str
+    hypothesis: str
+    feedback: str
+    evolution_response: str
+    result: str
+
+
+class OutOfTheBoxState(TypedDict):
+    """
+    State for the `out_of_the_box` prompt agent.
+    """
+
+    goal: str
+    top_hypotheses: List[str]
+    evolution_response: str
+    result: str
+
+
+@dataclass
+class EvolutionConfig:
+    """Configuration for evolution agents."""
+
+    llm: BaseChatModel
+
+
+def build_evolution_agent(
+    mode: str,
+    config: EvolutionConfig,
+) -> StateGraph:
+    """
+    Unified builder function for evolution agents that supports both evolve_from_feedback and out_of_the_box modes.
 
     Parameters
     ----------
-    llm: BaseChatModel
-        The language model to use for hypothesis evolution
-    goal: str
-        The research goal
-    research_plan_config: ResearchPlanConfig
-        The research plan configuration (for preferences)
-    hypothesis: str
-        The hypothesis to refine (as a string)
+    mode : str
+        The mode of operation, either "evolve_from_feedback" or "out_of_the_box".
+    config : EvolutionConfig
+        Configuration object containing the LLM to use for both evolution and standardization.
 
     Returns
     -------
-    GeneratedHypothesis
-        The improved hypothesis and reasoning
+    StateGraph
+        A compiled LangGraph for the evolution agent.
+
+    Raises
+    ------
+    ValueError
+        If mode is invalid.
     """
-    prompt_template = PromptTemplate(
-        input_variables=["goal", "preferences", "hypothesis"],
-        template=FEASIBILITY_PROMPT,
-    )
-    prompt = prompt_template.format(
-        goal=goal,
-        preferences=research_plan_config.preferences,
-        hypothesis=hypothesis.hypothesis,
-    )
+    if mode == "evolve_from_feedback":
+        return _build_evolve_from_feedback_agent(config.llm)
+    elif mode == "out_of_the_box":
+        return _build_out_of_the_box_agent(config.llm)
+    else:
+        raise ValueError(
+            "mode must be either 'evolve_from_feedback' or 'out_of_the_box'"
+        )
 
-    suffix = """
-    Return your output strictly in the following JSON format:
-    {
-        "reasoning": "<full detailed reasoning including analytical steps, literature synthesis, and logical progression>",
-        "hypothesis": "<fully refined hypothesis, stated in detail and tailored for domain experts>"
-    }
 
-    {
-        "reasoning": "
+def _evolve_from_feedback_node(
+    state: EvolveFromFeedbackState,
+    llm: BaseChatModel,
+) -> EvolveFromFeedbackState:
     """
+    Evolution node for evolving a hypothesis based on feedback.
+    """
+    prompt = load_prompt(
+        "evolve_from_feedback",
+        goal=state["goal"],
+        hypothesis=state["hypothesis"],
+        feedback=state["feedback"],
+    )
+    response_content = llm.invoke(prompt).content
+    return {**state, "evolution_response": response_content}
 
-    response_json_str = llm.invoke(prompt + suffix).content.replace("\n", " ")
-    response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
-    try:
-        data = json.loads(response_json_str)
-        return GeneratedHypothesis(**data)
-    except json.JSONDecodeError as e:
-        # print(f"Error decoding JSON from LLM: {e}")
-        # print(f"LLM Output was: {response_json_str}")
-        # raise
-        return response_json_str
+
+def _out_of_the_box_node(
+    state: OutOfTheBoxState,
+    llm: BaseChatModel,
+) -> OutOfTheBoxState:
+    """
+    Evolution node for generating out-of-the-box ideas from top hypotheses.
+    """
+    # Convert list of hypotheses to formatted string
+    hypotheses_text = "\n".join([f"- {hyp}" for hyp in state["top_hypotheses"]])
+
+    prompt = load_prompt(
+        "out_of_the_box",
+        goal=state["goal"],
+        hypotheses=hypotheses_text,
+    )
+    response_content = llm.invoke(prompt).content
+    return {**state, "evolution_response": response_content}
+
+
+def _standardization_node(
+    state: Union[EvolveFromFeedbackState, OutOfTheBoxState],
+    llm: BaseChatModel,
+) -> Union[EvolveFromFeedbackState, OutOfTheBoxState]:
+    """
+    Standardization node that formats the evolution response using the standardize_hypothesis prompt.
+    """
+    prompt = load_prompt(
+        "standardize_hypothesis",
+        transcript=state["evolution_response"],
+    )
+    response_content = llm.invoke(prompt).content
+    return {**state, "result": response_content}
+
+
+def _build_evolve_from_feedback_agent(llm: BaseChatModel) -> StateGraph:
+    """
+    Builds and configures a LangGraph for evolving hypotheses from feedback.
+
+    Parameters
+    ----------
+    llm : BaseChatModel
+        The language model to use for both evolution and standardization.
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the evolve-from-feedback agent.
+    """
+    graph = StateGraph(EvolveFromFeedbackState)
+
+    graph.add_node(
+        "evolution",
+        lambda state: _evolve_from_feedback_node(state, llm),
+    )
+    graph.add_node(
+        "standardization",
+        lambda state: _standardization_node(state, llm),
+    )
+
+    graph.add_edge("evolution", "standardization")
+    graph.add_edge("standardization", END)
+
+    graph.set_entry_point("evolution")
+    return graph.compile()
+
+
+def _build_out_of_the_box_agent(llm: BaseChatModel) -> StateGraph:
+    """
+    Builds and configures a LangGraph for generating out-of-the-box ideas.
+
+    Parameters
+    ----------
+    llm : BaseChatModel
+        The language model to use for both evolution and standardization.
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the out-of-the-box agent.
+    """
+    graph = StateGraph(OutOfTheBoxState)
+
+    graph.add_node(
+        "evolution",
+        lambda state: _out_of_the_box_node(state, llm),
+    )
+    graph.add_node(
+        "standardization",
+        lambda state: _standardization_node(state, llm),
+    )
+
+    graph.add_edge("evolution", "standardization")
+    graph.add_edge("standardization", END)
+
+    graph.set_entry_point("evolution")
+    return graph.compile()

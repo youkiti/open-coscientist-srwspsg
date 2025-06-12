@@ -14,202 +14,244 @@ This looks something like multihop reasoning with MCTS.
 - New hypotheses can be generated in later steps conditioned on the past hypotheses
 and feedback from the meta-review agent.
 
+TODO: Web search generation agent. This agent uses web search summaries to generate hypotheses.
+Unclear if these summaries should be compiled once and shared with other generation agents, or
+if it's a completely separate generation mode. My impression is that we should do deep research
+on the topic once at the beginning and the generation web search is just asking a handful of
+additional questions before formalizing a hypothesis.
+TODO: Add fields in the prompts for meta-review agent feedback and prior hypotheses.
+TODO: Consider treating the collaborative generation as a chatbot with Memory using LangGraph.
 """
 
-import json
-from langchain.prompts import PromptTemplate
+from dataclasses import dataclass
+from typing import Dict, List, TypedDict, Union
+
 from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.graph import END, StateGraph
 
-from coscientist.types import LiteratureReview, ResearchPlanConfig, GeneratedHypothesis
-
-GENERATION_PROMPT = """
-You are an expert tasked with formulating a novel and robust hypothesis to address
-the following objective.
-
-Describe the proposed hypothesis in detail, including specific entities, mechanisms,
-and anticipated outcomes. The hypothesis must clearly link proposed causes and effects
-step-by-step, and make explicit and actionable predictions along the way.
-Be as specific as possible, eliminate vagueness and hand-waving ruthlessly. 
-
-This description is intended for an audience of domain experts.
-
-You have conducted a thorough review of relevant literature and developed a logical framework
-for addressing the objective. The articles consulted, along with your analytical reasoning,
-are provided below.
-
-Goal: {goal}
-
-Criteria for a strong hypothesis:
-{preferences}
-
-Existing hypothesis (if applicable):
-{source_hypothesis}
-
-{instructions}
-
-Literature review and analytical rationale (chronologically ordered, beginning
-with the most recent analysis):
-
-{articles_with_reasoning}
-"""
-
-DEBATE_PROMPT = """
-You are an expert participating in a collaborative discourse concerning the generation
-of a {idea_attributes} hypothesis. You will engage in a simulated discussion with other experts.
-The overarching objective of this discourse is to collaboratively develop a novel
-and robust {idea_attributes} hypothesis.
-
-Goal: {goal}
-
-Criteria for a high-quality hypothesis:
-{preferences}
-
-Instructions:
-{instructions}
-
-Review Overview:
-{reviews_overview}
-
-Procedure:
-
-Initial contribution (if initiating the discussion):
-Propose three distinct {idea_attributes} hypotheses.
-
-Subsequent contributions (continuing the discussion):
-* Pose clarifying questions if ambiguities or uncertainties arise.
-* Critically evaluate the hypotheses proposed thus far, addressing the following aspects:
-- Adherence to {idea_attributes} criteria.
-- Utility and practicality.
-- Level of detail and specificity.
-* Identify any weaknesses or potential limitations.
-* Propose concrete improvements and refinements to address identified weaknesses.
-* Conclude your response with a refined iteration of the hypothesis.
-
-General guidelines:
-* Exhibit boldness and creativity in your contributions.
-* Maintain a helpful and collaborative approach.
-* Prioritize the generation of a high-quality {idea_attributes} hypothesis.
-
-Termination condition:
-When sufficient discussion has transpired (typically 3-5 conversational turns,
-with a maximum of 10 turns) and all relevant questions and points have been
-thoroughly addressed and clarified, conclude the process by writing "HYPOTHESIS"
-(in all capital letters) followed by a concise and self-contained exposition of the finalized idea.
-
-#BEGIN TRANSCRIPT#
-{transcript}
-#END TRANSCRIPT#
-
-Your Turn:
-"""
+from coscientist import multiturn
+from coscientist.common import load_prompt
+from coscientist.custom_types import ParsedHypothesis
+from coscientist.reasoning_types import ReasoningType
 
 
-def get_generation_prompt(
-    goal: str,
-    literature_review: LiteratureReview,
-    research_plan_config: ResearchPlanConfig,
-    source_hypothesis: str = "",
-    additional_instructions: str = "",
-) -> str:
-    """
-    Generate a prompt for hypothesis generation based on literature review and research plan.
-
-    Parameters
-    ----------
+class IndependentState(TypedDict):
     goal: str
-        The research goal to address
-    literature_review: LiteratureReview
-        The literature review containing articles and reasoning
-    research_plan_config: ResearchPlanConfig
-        The research plan configuration
-    source_hypothesis: str
-        The source hypothesis to build upon
-    additional_instructions: str
-        Additional instructions to include in the prompt
-
-    Returns
-    -------
-    str
-        The formatted prompt for hypothesis generation
-    """
-    prompt_template = PromptTemplate(
-        input_variables=[
-            "goal",
-            "preferences",
-            "source_hypothesis",
-            "instructions",
-            "articles_with_reasoning",
-        ],
-        template=GENERATION_PROMPT,
-    )
-    suffix = """
-    Return your output strictly in the following JSON format:
-    {
-        "reasoning": "<full detailed reasoning including analytical steps, literature synthesis, and logical progression>",
-        "hypothesis": "<fully elaborated hypothesis, stated in detail and tailored for domain experts>"
-    }
-
-    {
-        "reasoning": "
-    """
-
-    return (
-        prompt_template.format(
-            goal=goal,
-            preferences=research_plan_config.preferences,
-            source_hypothesis=source_hypothesis,
-            instructions=additional_instructions,
-            articles_with_reasoning=literature_review.articles_with_reasoning,
-        )
-        + suffix
-    )
+    literature_review: str
+    meta_review: str
+    result: str
 
 
-def generate_hypothesis(
-    llm: BaseChatModel,
-    goal: str,
-    literature_review: LiteratureReview,
-    research_plan_config: ResearchPlanConfig,
-    source_hypothesis: str = "",
-    additional_instructions: str = "",
-) -> GeneratedHypothesis:
-    """
-    Generate a hypothesis using the literature review and research plan.
+class CollaborativeState(IndependentState, multiturn.MultiTurnState):
+    pass
 
-    Parameters
-    ----------
+
+@dataclass
+class IndependentConfig:
+    """Configuration for independent generation mode."""
+
+    field: str
+    reasoning_type: ReasoningType
     llm: BaseChatModel
-        The language model to use for hypothesis generation
-    goal: str
-        The research goal to address
-    literature_review: LiteratureReview
-        The literature review containing articles and reasoning
-    research_plan_config: ResearchPlanConfig
-        The research plan configuration
-    source_hypothesis: str
-        The source hypothesis to build upon
-    additional_instructions: str
-        Additional instructions to include in the prompt
+
+
+@dataclass
+class CollaborativeConfig:
+    """Configuration for collaborative generation mode."""
+
+    agent_names: List[str]
+    agent_fields: Dict[str, str]
+    agent_reasoning_types: Dict[str, ReasoningType]
+    llms: Dict[str, BaseChatModel]
+    standardization_llm: BaseChatModel
+    max_turns: int = 10
+
+
+def build_generation_agent(
+    mode: str,
+    config: Union[IndependentConfig, CollaborativeConfig],
+) -> StateGraph:
+    """
+    Unified builder function for generation agents that supports both independent and collaborative modes.
+
+    Parameters
+    ----------
+    mode : str
+        The mode of operation, either "independent" or "collaborative".
+    config : Union[IndependentConfig, CollaborativeConfig]
+        Configuration object containing all necessary parameters for the selected mode.
 
     Returns
     -------
-    str
-        The generated hypothesis
+    StateGraph
+        A compiled LangGraph for the generation agent.
+
+    Raises
+    ------
+    ValueError
+        If mode is invalid or required parameters are missing for the selected mode.
     """
-    prompt = get_generation_prompt(
-        goal=goal,
-        literature_review=literature_review,
-        research_plan_config=research_plan_config,
-        source_hypothesis=source_hypothesis,
-        additional_instructions=additional_instructions,
+    if mode == "independent":
+        if not isinstance(config, IndependentConfig):
+            raise ValueError("config must be an IndependentConfig instance")
+        return _build_independent_generation_agent(
+            config.field, config.reasoning_type, config.llm
+        )
+    elif mode == "collaborative":
+        if not isinstance(config, CollaborativeConfig):
+            raise ValueError("config must be a CollaborativeConfig instance")
+        # Use the simplified multi-turn system
+        return _build_collaborative_generation_agent(
+            config.agent_names,
+            config.agent_fields,
+            config.agent_reasoning_types,
+            config.llms,
+            config.standardization_llm,
+            config.max_turns,
+        )
+    else:
+        raise ValueError("mode must be either 'independent' or 'collaborative'")
+
+
+def _independent_generation_node(
+    state: IndependentState,
+    field: str,
+    reasoning_type: ReasoningType,
+    llm: BaseChatModel,
+) -> IndependentState:
+    """
+    Represents the action of a single generation agent using the independent_generation.md template.
+    The output is expected to be markdown with sections: Evidence, Hypothesis, Reasoning, Assumptions Table.
+    """
+    # Handle meta_review field with fallback
+    meta_review = state.get("meta_review", "Not Available")
+
+    prompt = load_prompt(
+        "independent_generation",
+        goal=state["goal"],
+        field=field,
+        literature_review=state["literature_review"],
+        meta_review=meta_review,
+        reasoning_type=reasoning_type.value,
     )
-    response_json_str = llm.invoke(prompt).content.replace("\n", " ")
-    response_json_str = response_json_str.removeprefix("```json").removesuffix("```")
-    try:
-        data = json.loads(response_json_str)
-        return GeneratedHypothesis(**data)
-    except json.JSONDecodeError as e:
-        # print(f"Error decoding JSON from LLM: {e}")
-        # print(f"LLM Output was: {response_json_str}")
-        # raise
-        return response_json_str
+    response_content = llm.invoke(prompt).content
+    return {**state, "result": response_content}
+
+
+def _build_independent_generation_agent(
+    field: str, reasoning_type: ReasoningType, llm: BaseChatModel
+):
+    """
+    Builds and configures a LangGraph for a single-agent generation process using the independent_generation.md template.
+    The agent's output is markdown with sections: Evidence, Hypothesis, Reasoning, Assumptions Table.
+
+    Parameters
+    ----------
+    agent_name : str
+        Name of the agent.
+    field : str
+        Field or domain of expertise.
+    reasoning_type : ReasoningType
+        Reasoning type for the agent.
+    llm : BaseChatModel
+        The language model to use.
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the generation agent.
+    """
+    graph = StateGraph(IndependentState)
+    graph.add_node(
+        "generator",
+        lambda state: _independent_generation_node(state, field, reasoning_type, llm),
+    )
+    graph.add_edge("generator", END)
+
+    graph.set_entry_point("generator")
+    return graph.compile()
+
+
+def _build_collaborative_generation_agent(
+    agent_names: List[str],
+    agent_fields: Dict[str, str],
+    agent_reasoning_types: Dict[str, ReasoningType],
+    llms: Dict[str, BaseChatModel],
+    standardization_llm: BaseChatModel,
+    max_turns: int = 10,
+) -> StateGraph:
+    """Build collaborative generation agent."""
+
+    # Create agent node functions
+    agent_node_fns = {}
+    for agent_name in agent_names:
+        agent_node_fns[agent_name] = multiturn.create_agent_node_fn(
+            agent_name=agent_name,
+            llm=llms[agent_name],
+            prompt_name="collaborative_generation",
+            prompt_keys_from_state=["goal", "literature_review", "meta_review"],
+            # kwargs for the prompt
+            field=agent_fields[agent_name],
+            reasoning_type=agent_reasoning_types[agent_name].value,
+        )
+
+    # Create moderator and post-processor
+    moderator_fn = multiturn.create_moderator_node_fn(
+        agent_names, lambda msg: "FINAL HYPOTHESIS:" in msg, max_turns
+    )
+    post_processor_fn = multiturn.create_post_processor_node_fn(
+        standardization_llm, "standardize_hypothesis"
+    )
+
+    return multiturn.build_multi_turn_agent(
+        CollaborativeState, agent_node_fns, moderator_fn, post_processor_fn
+    )
+
+
+def parse_hypothesis_markdown(markdown_text: str) -> ParsedHypothesis:
+    """
+    Parse markdown text with # headings to extract Hypothesis, Reasoning, and Assumptions sections.
+
+    Parameters
+    ----------
+    markdown_text : str
+        Markdown text containing sections with # headings for Hypothesis, Reasoning, and Assumptions
+
+    Returns
+    -------
+    ParsedHypothesis
+        Structured output with hypothesis, reasoning, and assumptions fields extracted from markdown
+    """
+    # Split the text by # to get sections
+    sections = markdown_text.split("#")
+
+    # Initialize fields
+    hypothesis = ""
+    reasoning = ""
+    assumptions = ""
+
+    # Process each section
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        # Split section into title and content
+        lines = section.split("\n", 1)
+        if len(lines) < 2:
+            continue
+
+        title = lines[0].strip().lower()
+        content = lines[1].strip()
+
+        # Match section titles (case-insensitive)
+        if "hypothesis" in title:
+            hypothesis = content
+        elif "reasoning" in title:
+            reasoning = content
+        elif "assumption" in title:  # Matches both "Assumption" and "Assumptions"
+            assumptions = content
+
+    return ParsedHypothesis(
+        hypothesis=hypothesis, reasoning=reasoning, assumptions=assumptions
+    )

@@ -5,7 +5,7 @@ System for agentic literature review that's used by other agents.
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from coscientist.types import LiteratureReview
+from coscientist.custom_types import LiteratureReview
 
 _PROMPT = """
 You are an expect in biomedical research and especially skilled at writing 

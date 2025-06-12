@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -43,10 +43,11 @@ setup(
             "isort>=5.0.0",
             "mypy>=1.0.0",
             "ruff>=0.0.1",
+            "pre-commit>=3.0.0",
         ],
         "docs": [
             "sphinx>=7.0.0",
             "sphinx-rtd-theme>=1.0.0",
         ],
     },
-) 
+)
