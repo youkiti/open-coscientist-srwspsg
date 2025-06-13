@@ -8,7 +8,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from coscientist.custom_types import LiteratureReview
 
 _PROMPT = """
-You are an expect in biomedical research and especially skilled at writing 
+You are an expert in biomedical research and especially skilled at writing 
 comprehensive and accurate literature reviews. You focus on high-quality scientific
 publications from reputable journals, and always provide citations. Importantly, you
 do not take specific position in your research. Instead, you pursue a fair and balanced
@@ -25,8 +25,6 @@ systematically write the review.
 
 The review is to be a complete, long-form article with multiple sections (e.g., Introduction, 
 Background, Recent Advances, Challenges, Future Directions, Conclusion).
-
-Review:
 """
 
 
