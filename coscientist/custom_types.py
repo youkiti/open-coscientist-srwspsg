@@ -1,20 +1,23 @@
+import uuid
+from typing import List
+
 from pydantic import BaseModel, Field
-
-
-class LiteratureReview(BaseModel):
-    """A review of the literature."""
-
-    articles_with_reasoning: str = Field(description="A review of the literature.")
 
 
 class ParsedHypothesis(BaseModel):
     """Structured output for parsed hypothesis."""
 
-    hypothesis: str = Field(description="The main hypothesis statement")
-    reasoning: str = Field(
-        description="The reasoning and justification for the hypothesis"
+    uid: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        description="Unique identifier for the hypothesis",
     )
-    assumptions: str = Field(description="The assumptions and falsifiable predictions")
+    hypothesis: str = Field(description="The main hypothesis statement")
+    predictions: List[str] = Field(
+        description="A list of predictions that could be tested to disprove the hypothesis"
+    )
+    assumptions: List[str] = Field(
+        description="A list of assumptions that are implicit or explicit in the hypothesis"
+    )
 
 
 class HypothesisWithID(BaseModel):

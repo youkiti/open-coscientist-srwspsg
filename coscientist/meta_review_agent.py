@@ -78,7 +78,10 @@ def _meta_review_node(
     # Build debates text from match history
     debates_entries = []
     for i, match_result in enumerate(tournament.match_history.values(), 1):
-        debate_header = f"Debate {i}: Hypothesis {match_result.id1} vs Hypothesis {match_result.id2} (Winner: {match_result.winner})"
+        debate_header = (
+            f"Debate {i}: Hypothesis {match_result.id1} vs Hypothesis {match_result.id2} "
+            f"(Winner: {match_result.winner})"
+        )
         debates_entries.append(f"{debate_header}\n{match_result.debate}")
     debates_text = "\n\n".join(debates_entries)
 

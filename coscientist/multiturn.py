@@ -13,7 +13,6 @@ class MultiTurnState(TypedDict):
     turn: int
     next_agent: str
     finished: bool
-    result: str
 
 
 def create_agent_node_fn(
@@ -76,23 +75,6 @@ def create_moderator_node_fn(
         }
 
     return moderator_fn
-
-
-def create_post_processor_node_fn(
-    llm: BaseChatModel,
-    prompt_name: str,
-) -> Callable[[MultiTurnState], MultiTurnState]:
-    """Create a post-processor node function."""
-
-    def post_processor_fn(state: MultiTurnState) -> MultiTurnState:
-        transcript_str = "\n".join(
-            [f"{name}: {msg}" for name, msg in state["transcript"]]
-        )
-        prompt = load_prompt(prompt_name, transcript=transcript_str)
-        result = llm.invoke(prompt).content
-        return {**state, "result": result}
-
-    return post_processor_fn
 
 
 def build_multi_turn_agent(

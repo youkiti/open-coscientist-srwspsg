@@ -7,8 +7,7 @@ Reflection agent
 - Deep verification
 
 More details:
-- Fully reviews a hypothesis with web search: Consider using `web_search_preview` from
-OpenAI's API in a ReAct agent.
+- Fully reviews a hypothesis with web search
 - Observation review checks to see if there is unexplained observational
 data that would be explained by the hypothesis.
 - Simulation does a step-by-step rollout of a proposed mechanism of

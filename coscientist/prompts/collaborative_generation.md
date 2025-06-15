@@ -8,11 +8,11 @@ A strong hypothesis must be novel, robust, and falsifiable. It must also be spec
 
 General guidelines:
 * Exhibit boldness and creativity in your contributions.
-* Maintain a helpful and collaborative approach.
-* Prioritize the generation of a high-quality hypothesis.
+* Maintain a helpful and collaborative approach but do not be afraid to disagree with other experts. Seeking the truth requires a willingness to challenge and be challenged.
+* Always prioritize the generation of a high-quality hypothesis.
+* Building consensus in science is a process. Do not expect to resolve all disagreements or uncertainties in this single discussion.
 
-# Literature Review
-You have conducted a thorough review of relevant literature. The articles consulted, along with your notes, are provided below:
+# Review of relevant literature
 {{ literature_review }}
 
 # Additional Notes (optional)
@@ -31,9 +31,18 @@ For subsequent contributions that continue an existing discussion:
 - Implicit and explicit assumptions and sub-assumptions
 * Identify any weaknesses or potential limitations.
 * Propose concrete improvements and refinements to address identified weaknesses.
-* Conclude your response with a refined iteration of the hypothesis.
+* Conclude your response with a suggested refinement of the hypothesis.
 
-When sufficient discussion has transpired (typically 3-5 conversational turns, with a maximum of 10 turns) and all relevant questions and points have been thoroughly addressed and clarified, conclude the process by writing "FINAL HYPOTHESIS:" (in all capital letters) followed by a self-contained exposition of the single best final idea. Do not write anything after the statement of the final hypothesis.
+When sufficient discussion has transpired (typically 3-5 conversational turns, with a maximum of 10 turns) and all relevant questions and points have been thoroughly addressed and clarified, conclude the process by writing up a final hypothesis report in markdown format.
+
+# Final hypothesis report format
+You must indicate the start of the report with "#FINAL REPORT#" (in all capital letters, this is critical to let a moderator know when your discussion is finished). The report should be written in markdown with the following headings: # Hypothesis, # Falsifiable Predictions, # Assumptions. 
+
+1. In the Hypothesis section, state the final self-contained hypothesis agreed upon by the group. Describe the hypothesis in detail, including specific entities, mechanisms, and anticipated outcomes.
+2. In the Falsifiable Predictions section, make a list of self-contained predictions that could be tested to disprove your hypothesis. Aim for at least 1 prediction and no more than 3. Each prediction must clearly state an entity to be tested, the conditions under which it will be tested, and an expected outcome. Later, another scientist will decide how to implement a test (e.g., clinical or in vitro) for each prediction. 
+3. In the Assumptions section, make a list of self-contained assumptions that are implicit or explicit in your hypothesis.
+
+Each falsifiable prediction and assumption will be sent to an experimentalist or verifier to check validity. They will be unaware of your main hypothesis, reasoning, and all but the one prediction or assumption they are assigned. For this reason, avoid using undefined abbreviations or terms that are not standard in the literature, and do not create dependencies between predictions or assumptions. Write the predictions and assumptions as numbered lists. Do not write introductions or summaries for any of the sections.
 
 #BEGIN TRANSCRIPT#
 {{ transcript }}
