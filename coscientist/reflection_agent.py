@@ -40,6 +40,8 @@ class ReflectionState(TypedDict):
         Whether the hypothesis passed the initial desk rejection filter
     verification_result: str
         The result of the deep verification process
+    simulation_result: str
+        The result of the hypothesis simulation process
     """
 
     hypothesis: str
@@ -48,6 +50,7 @@ class ReflectionState(TypedDict):
     initial_filter_assessment: str
     passed_initial_filter: bool
     verification_result: str
+    simulation_result: str
 
 
 def desk_reject_node(state: ReflectionState, llm: BaseChatModel) -> ReflectionState:
@@ -102,6 +105,31 @@ def deep_verification_node(
     return {**state, "verification_result": response.content}
 
 
+def hypothesis_simulation_node(
+    state: ReflectionState, llm: BaseChatModel
+) -> ReflectionState:
+    """
+    Performs step-by-step simulation of a hypothesis using the hypothesis_simulation.md prompt.
+
+    Parameters
+    ----------
+    state: ReflectionState
+        The current state of the reflection process
+    llm: BaseChatModel
+        The language model to use for simulation
+
+    Returns
+    -------
+    ReflectionState
+        Updated state with the simulation_result field populated
+    """
+    # prompt = load_prompt("hypothesis_simulation", hypothesis=state["hypothesis"])
+    prompt = load_prompt("cause_and_effect", hypothesis=state["hypothesis"])
+    response = llm.invoke(prompt)
+
+    return {**state, "simulation_result": response.content}
+
+
 def build_reflection_agent(llm: BaseChatModel):
     """
     Builds and configures a LangGraph for the reflection agent process.
@@ -145,5 +173,38 @@ def build_reflection_agent(llm: BaseChatModel):
 
     # Set entry point
     graph.set_entry_point("desk_reject")
+
+    return graph.compile()
+
+
+def build_hypothesis_simulation_agent(llm: BaseChatModel):
+    """
+    Builds and configures a simple LangGraph for hypothesis simulation.
+
+    The graph has one node:
+    1. hypothesis_simulation: Performs step-by-step simulation of a hypothesis to identify failure scenarios
+
+    Parameters
+    ----------
+    llm: BaseChatModel
+        The language model to use for simulation
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the hypothesis simulation agent
+    """
+    graph = StateGraph(ReflectionState)
+
+    # Add node
+    graph.add_node(
+        "hypothesis_simulation", lambda state: hypothesis_simulation_node(state, llm)
+    )
+
+    # Connect to end
+    graph.add_edge("hypothesis_simulation", END)
+
+    # Set entry point
+    graph.set_entry_point("hypothesis_simulation")
 
     return graph.compile()
