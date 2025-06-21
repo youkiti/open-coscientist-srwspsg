@@ -11,7 +11,7 @@ import numpy as np
 from langchain_openai import OpenAIEmbeddings
 from sklearn.metrics.pairwise import cosine_similarity
 
-from coscientist.custom_types import HypothesisWithID
+from coscientist.custom_types import ParsedHypothesis
 
 
 def create_embedding(text: str, dimensions: int = 256) -> np.ndarray:
@@ -26,11 +26,11 @@ class ProximityGraph:
     def __init__(self):
         self.graph = nx.Graph()
 
-    def add_hypothesis(self, hypothesis: HypothesisWithID):
+    def add_hypothesis(self, hypothesis: ParsedHypothesis):
         """Add a hypothesis to the graph."""
-        embedding = create_embedding(hypothesis.content)
+        embedding = create_embedding(hypothesis.hypothesis)
         self.graph.add_node(
-            hypothesis.id, hypothesis=hypothesis.content, embedding=embedding
+            hypothesis.uid, hypothesis=hypothesis.hypothesis, embedding=embedding
         )
 
     def _compute_weighted_edges(

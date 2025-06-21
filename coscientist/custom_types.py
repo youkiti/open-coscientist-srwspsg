@@ -1,25 +1,41 @@
+import uuid
+from typing import Dict, List
+
 from pydantic import BaseModel, Field
-
-
-class LiteratureReview(BaseModel):
-    """A review of the literature."""
-
-    articles_with_reasoning: str = Field(description="A review of the literature.")
 
 
 class ParsedHypothesis(BaseModel):
     """Structured output for parsed hypothesis."""
 
-    hypothesis: str = Field(description="The main hypothesis statement")
-    reasoning: str = Field(
-        description="The reasoning and justification for the hypothesis"
+    uid: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        description="Unique identifier for the hypothesis",
     )
-    assumptions: str = Field(description="The assumptions and falsifiable predictions")
+    hypothesis: str = Field(description="The main hypothesis statement")
+    predictions: List[str] = Field(
+        description="A list of predictions that could be tested to disprove the hypothesis"
+    )
+    assumptions: List[str] = Field(
+        description="A list of assumptions that are implicit or explicit in the hypothesis"
+    )
 
 
-class HypothesisWithID(BaseModel):
-    """A hypothesis with an ID."""
+class ReviewedHypothesis(ParsedHypothesis):
+    """Structured output for reviewed hypothesis."""
 
-    id: int
-    content: str
-    review: str
+    causal_reasoning: str = Field(description="The causal reasoning for the hypothesis")
+    assumption_research_results: Dict[str, str] = Field(
+        description="A dictionary of assumption research results"
+    )
+    verification_result: str = Field(
+        description="The result of the deep verification process"
+    )
+
+
+class RankingMatchResult(BaseModel):
+    """Result of a match between two hypotheses."""
+
+    uid1: str = Field(description="Unique identifier for the first hypothesis")
+    uid2: str = Field(description="Unique identifier for the second hypothesis")
+    winner: int = Field(description="The winner of the match (1 or 2)")
+    debate: str = Field(description="The debate between the two hypotheses")

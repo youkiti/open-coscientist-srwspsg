@@ -7,8 +7,7 @@ Reflection agent
 - Deep verification
 
 More details:
-- Fully reviews a hypothesis with web search: Consider using `web_search_preview` from
-OpenAI's API in a ReAct agent.
+- Fully reviews a hypothesis with web search
 - Observation review checks to see if there is unexplained observational
 data that would be explained by the hypothesis.
 - Simulation does a step-by-step rollout of a proposed mechanism of
@@ -21,9 +20,15 @@ TODO: Add the observation reflection and simulation prompts. Figure out how to w
 for the observations to review.
 """
 
-from typing import TypedDict
+import asyncio
+import os
+import re
+from typing import Dict, List, Optional, TypedDict
 
+from gpt_researcher import GPTResearcher
+from gpt_researcher.utils.enum import Tone
 from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
@@ -41,6 +46,14 @@ class ReflectionState(TypedDict):
         Whether the hypothesis passed the initial desk rejection filter
     verification_result: str
         The result of the deep verification process
+    simulation_result: str
+        The result of the hypothesis simulation process
+    causal_reasoning: str
+        The causal trace from hypothesis simulation
+    parsed_assumptions: Dict[str, List[str]]
+        Dictionary of parsed assumptions and sub-assumptions
+    assumption_research_results: Dict[str, str]
+        Research results for each assumption
     """
 
     hypothesis: str
@@ -49,6 +62,60 @@ class ReflectionState(TypedDict):
     initial_filter_assessment: str
     passed_initial_filter: bool
     verification_result: str
+    causal_reasoning: str
+    refined_assumptions: str
+    parsed_assumptions: Dict[str, List[str]]
+    assumption_research_results: Dict[str, str]
+
+
+def parse_assumption_decomposition(markdown_text: str) -> Dict[str, List[str]]:
+    """
+    Parse the assumption decomposition markdown into a dictionary.
+
+    Parameters
+    ----------
+    markdown_text : str
+        The markdown output from assumption_decomposer prompt
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary where keys are primary assumptions and values are lists of sub-assumptions
+    """
+    assumptions_dict = {}
+
+    # Split by numbered assumption headers (1. **[Assumption]** or similar)
+    # This regex looks for: number, period, space, **[text]**
+    sections = re.split(r"\n\d+\.\s+\*\*([^*]+)\*\*", markdown_text)
+
+    # The first section is usually intro text, skip it
+    # Pairs are: (assumption_text, section_content)
+    for i in range(1, len(sections), 2):
+        if i + 1 < len(sections):
+            assumption = sections[i].strip()
+            content = sections[i + 1].strip()
+
+            # Extract sub-assumptions from bullet points or dashes
+            # Look for lines starting with - or * followed by sub-assumption text
+            sub_assumptions = []
+            for line in content.split("\n"):
+                line = line.strip()
+                if line.startswith("- ") or line.startswith("* "):
+                    # Remove the bullet point marker and any sub-assumption prefix
+                    sub_assumption = line[2:].strip()
+                    # Remove "Sub-assumption X.Y:" prefix if present
+                    sub_assumption = re.sub(
+                        r"^Sub-assumption\s+\d+\.\d+:\s*", "", sub_assumption
+                    )
+                    if sub_assumption:
+                        sub_assumptions.append(sub_assumption)
+
+            if assumption and sub_assumptions:
+                # Clean up the assumption text - remove brackets if present
+                assumption = re.sub(r"^\[([^\]]+)\]$", r"\1", assumption)
+                assumptions_dict[assumption] = sub_assumptions
+
+    return assumptions_dict
 
 
 def desk_reject_node(state: ReflectionState, llm: BaseChatModel) -> ReflectionState:
@@ -73,9 +140,66 @@ def desk_reject_node(state: ReflectionState, llm: BaseChatModel) -> ReflectionSt
     passed = "pass" in response.content.split("FINAL EVALUATION:")[-1].lower()
 
     return {
-        **state,
         "passed_initial_filter": passed,
         "initial_filter_assessment": response.content,
+    }
+
+
+def hypothesis_simulation_node(
+    state: ReflectionState, llm: BaseChatModel
+) -> ReflectionState:
+    """
+    Performs step-by-step simulation of a hypothesis using the hypothesis_simulation.md prompt.
+
+    Parameters
+    ----------
+    state: ReflectionState
+        The current state of the reflection process
+    llm: BaseChatModel
+        The language model to use for simulation
+
+    Returns
+    -------
+    ReflectionState
+        Updated state with the simulation_result field populated
+    """
+    prompt = load_prompt("cause_and_effect", hypothesis=state["hypothesis"])
+    response = llm.invoke(prompt)
+
+    return {"causal_reasoning": response.content}
+
+
+def assumption_decomposer_node(
+    state: ReflectionState, llm: BaseChatModel
+) -> ReflectionState:
+    """
+    Decomposes a hypothesis into detailed assumptions and sub-assumptions.
+
+    Parameters
+    ----------
+    state: ReflectionState
+        The current state of the reflection process
+    llm: BaseChatModel
+        The language model to use for decomposition
+
+    Returns
+    -------
+    ReflectionState
+        Updated state with the parsed_assumptions field populated
+    """
+    prompt = load_prompt(
+        "assumption_decomposer",
+        hypothesis=state["hypothesis"],
+        assumptions=state.get("assumptions", ""),
+    )
+    response = llm.invoke(prompt)
+
+    # Parse the assumptions into structured format
+    parsed_assumptions = parse_assumption_decomposition(response.content)
+
+    return {
+        "refined_assumptions": response.content,
+        "parsed_assumptions": parsed_assumptions,
     }
 
 
@@ -97,54 +221,236 @@ def deep_verification_node(
     ReflectionState
         Updated state with the verification_result field populated
     """
-    prompt = load_prompt("deep_verification", hypothesis=state["hypothesis"])
+    # Debug: Check what keys are actually in the state
+    available_keys = list(state.keys())
+
+    # More informative assertions
+    assert (
+        "assumption_research_results" in state
+    ), f"Missing 'assumption_research_results'. Available keys: {available_keys}"
+    assert (
+        "causal_reasoning" in state
+    ), f"Missing 'causal_reasoning'. Available keys: {available_keys}"
+
+    # Combine assumption research results into a single string
+    assumption_research = "\n\n".join(state["assumption_research_results"].values())
+
+    prompt = load_prompt(
+        "deep_verification",
+        hypothesis=state["hypothesis"],
+        reasoning=state["causal_reasoning"],
+        assumption_research=assumption_research,
+    )
     response = llm.invoke(prompt)
 
-    return {**state, "verification_result": response.content}
+    return {"verification_result": response.content}
 
 
-def build_reflection_agent(llm: BaseChatModel):
+def build_deep_verification_agent(
+    llm: BaseChatModel,
+    review_llm: BaseChatModel,
+    parallel: bool = False,
+    checkpointer: Optional[BaseCheckpointSaver] = None,
+    breakpoints: Optional[List[str]] = None,
+):
     """
-    Builds and configures a LangGraph for the reflection agent process.
+    Builds and configures a multinode LangGraph for comprehensive deep verification with research.
 
-    The graph has three nodes:
-    1. desk_reject: Evaluates if a hypothesis is worth deeper analysis
-    2. deep_verification: Performs detailed verification of hypotheses that pass initial filtering
-    3. observation_review: Assesses explanatory power against existing observations
+    The graph has four nodes:
+    1. start_parallel: Initiates parallel processing
+    2. enhanced_assumption_decomposer: Breaks down hypothesis into detailed assumptions and conducts research
+    3. hypothesis_simulation: Performs causal reasoning and step-by-step simulation (runs in parallel)
+    4. enhanced_deep_verification: Performs final verification using refined assumptions, research, and causal reasoning
 
     Parameters
     ----------
     llm: BaseChatModel
-        The language model to use for all nodes
+        The language model to use for simulation and assumption decomposition
+    review_llm: BaseChatModel
+        The language model to use for final review. Needs to support long context.
+    parallel: bool, default=False
+        Whether to run assumption research in parallel (True) or sequentially (False)
+    checkpointer: Optional[BaseCheckpointSaver], default=None
+        Checkpointer to save and restore graph state for debugging and resumption
+    breakpoints: Optional[List[str]], default=None
+        List of node names to set as breakpoints (execution will pause before these nodes)
 
     Returns
     -------
     StateGraph
-        A compiled LangGraph for the reflection agent
+        A compiled LangGraph for the research-enhanced deep verification agent
     """
     graph = StateGraph(ReflectionState)
 
+    # Add a simple pass-through node to enable parallel execution after desk reject
+    def start_parallel(state: ReflectionState) -> ReflectionState:
+        return state
+
+    # Add a sync node that waits for both parallel branches to complete
+    def sync_parallel_results(state: ReflectionState) -> ReflectionState:
+        # This node just passes through the state after both parallel branches complete
+        return state
+
     # Add nodes
     graph.add_node("desk_reject", lambda state: desk_reject_node(state, llm))
+    graph.add_node("start_parallel", start_parallel)
+    graph.add_node("sync_parallel_results", sync_parallel_results)
     graph.add_node(
-        "deep_verification", lambda state: deep_verification_node(state, llm)
+        "assumption_decomposer", lambda state: assumption_decomposer_node(state, llm)
     )
 
-    # Define transitions
-    def route_after_desk_reject(state: ReflectionState):
-        if state["passed_initial_filter"]:
-            return "deep_verification"
-        return END
+    # Choose research node based on parallel parameter
+    if parallel:
+        graph.add_node(
+            "assumption_researcher",
+            lambda state: _parallel_assumption_research_node(state),
+        )
+    else:
+        graph.add_node(
+            "assumption_researcher",
+            lambda state: _sequential_assumption_research_node(state),
+        )
 
-    graph.add_conditional_edges(
-        "desk_reject",
-        route_after_desk_reject,
-        {"deep_verification": "deep_verification", END: END},
+    graph.add_node(
+        "hypothesis_simulation", lambda state: hypothesis_simulation_node(state, llm)
+    )
+    graph.add_node(
+        "deep_verification", lambda state: deep_verification_node(state, review_llm)
     )
 
-    graph.add_edge("deep_verification", END)
-
-    # Set entry point
+    # Set entry point to desk reject
     graph.set_entry_point("desk_reject")
 
-    return graph.compile()
+    # Conditional routing after desk reject
+    def should_continue(state: ReflectionState) -> str:
+        if state["passed_initial_filter"]:
+            return "start_parallel"
+        else:
+            return END
+
+    graph.add_conditional_edges("desk_reject", should_continue)
+
+    # Create parallel branches from start_parallel
+    graph.add_edge("start_parallel", "assumption_decomposer")
+    graph.add_edge("start_parallel", "hypothesis_simulation")
+    graph.add_edge("assumption_decomposer", "assumption_researcher")
+
+    # Both parallel nodes feed into sync node, then to verification
+    graph.add_edge("assumption_researcher", "sync_parallel_results")
+    graph.add_edge("hypothesis_simulation", "sync_parallel_results")
+    graph.add_edge("sync_parallel_results", "deep_verification")
+
+    # Final verification connects to end
+    graph.add_edge("deep_verification", END)
+
+    # Compile with optional checkpointer and breakpoints
+    compile_kwargs = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    if breakpoints is not None:
+        compile_kwargs["interrupt_before"] = breakpoints
+
+    return graph.compile(**compile_kwargs)
+
+
+async def _write_assumption_research_report(assumption_evaluation_query: str) -> str:
+    """
+    Conduct research for a single sub-assumption using GPTResearcher.
+
+    Parameters
+    ----------
+    assumption : str
+        The primary assumption being researched
+    sub_assumption : str
+        The specific sub-assumption to research
+    hypothesis : str
+        The main hypothesis for context
+
+    Returns
+    -------
+    str
+        The research report
+    """
+    researcher = GPTResearcher(
+        query=assumption_evaluation_query,
+        report_type="research_report",
+        report_format="markdown",
+        verbose=True,
+        tone=Tone.Objective,
+        config_path=os.path.join(os.path.dirname(__file__), "researcher_config.json"),
+    )
+
+    # Conduct research and generate report
+    _ = await researcher.conduct_research()
+    return await researcher.write_report()
+
+
+def _parallel_assumption_research_node(
+    state: ReflectionState,
+) -> ReflectionState:
+    """
+    Node that conducts parallel research for all assumptions and sub-assumptions using GPTResearcher.
+    """
+    parsed_assumptions = state["parsed_assumptions"]
+
+    async def _conduct_research():
+        # Create research tasks for all assumption/sub-assumption pairs
+        research_tasks = []
+        for assumption, sub_assumptions in parsed_assumptions.items():
+            query = (
+                "Assess the validity of the following assumption and each "
+                "of it's sub-assumptions using the latest research. "
+                f"Assumption: {assumption} "
+            )
+            for i, sub_assumption in enumerate(sub_assumptions):
+                query += f"Sub-assumption {i}: {sub_assumption} "
+
+            task = _write_assumption_research_report(query)
+            research_tasks.append(task)
+
+        # Execute all research tasks in parallel
+        return await asyncio.gather(*research_tasks)
+
+    # Run the async operations synchronously
+    try:
+        research_results = asyncio.run(_conduct_research())
+    except Exception as e:
+        raise RuntimeError(f"Failed to conduct research for assumptions: {str(e)}")
+
+    # Organize results by assumption
+    assumption_research_results = {}
+    for assumption, result in zip(parsed_assumptions.keys(), research_results):
+        assumption_research_results[assumption] = result
+
+    return {"assumption_research_results": assumption_research_results}
+
+
+def _sequential_assumption_research_node(
+    state: ReflectionState,
+) -> ReflectionState:
+    """
+    Node that conducts sequential research for all assumptions and sub-assumptions using GPTResearcher.
+    """
+    parsed_assumptions = state["parsed_assumptions"]
+    assumption_research_results = {}
+
+    # Process each assumption sequentially
+    for assumption, sub_assumptions in parsed_assumptions.items():
+        query = (
+            "Assess the validity of the following assumption and each "
+            "of it's sub-assumptions using the latest research. "
+            f"Assumption: {assumption} "
+        )
+        for i, sub_assumption in enumerate(sub_assumptions):
+            query += f"Sub-assumption {i}: {sub_assumption} "
+
+        # Run research for this assumption
+        try:
+            result = asyncio.run(_write_assumption_research_report(query))
+            assumption_research_results[assumption] = result
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to conduct research for assumption '{assumption}': {str(e)}"
+            )
+
+    return {"assumption_research_results": assumption_research_results}

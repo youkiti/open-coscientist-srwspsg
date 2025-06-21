@@ -14,8 +14,6 @@ of the winning hypothesis.
 - Based on the Proximity agents graph, similar hypotheses are ranked
 against each other. New and top-ranked hypotheses are prioritized.
 
-TODO: Make an agent that strips out feedback/criticism of a specific hypothesis
-from the transcript -- summarizing common themes.
 TODO: Add a queue of hypotheses ordered by rank this will limit the number of hypotheses
 that need to be evaluated by dropping the lowest ranked hypotheses that drop outside of the
 queue.
@@ -25,12 +23,11 @@ import itertools  # Add itertools for combinations
 from typing import Dict, List, Optional, Tuple  # Add Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from pydantic import BaseModel
 from tqdm import tqdm
 
 from coscientist import multiturn
 from coscientist.common import load_prompt
-from coscientist.custom_types import HypothesisWithID
+from coscientist.custom_types import RankingMatchResult, ReviewedHypothesis
 
 # Constants
 DEFAULT_ELO = 1200
@@ -76,14 +73,14 @@ def _build_debate_agent(
     return multiturn.build_multi_turn_agent(DebateState, agent_node_fns, moderator_fn)
 
 
-def calculate_expected_score(rating1: float, rating2: float) -> tuple[float, float]:
+def calculate_expected_score(rating1: float, rating2: float) -> Tuple[float, float]:
     """Calculates the expected scores for two players based on their ELO ratings."""
     expected1 = 1 / (1 + 10 ** ((rating2 - rating1) / 400))
     expected2 = 1 / (1 + 10 ** ((rating1 - rating2) / 400))
     return expected1, expected2
 
 
-def update_elo(rating1: float, rating2: float, winner: int) -> tuple[float, float]:
+def update_elo(rating1: float, rating2: float, winner: int) -> Tuple[float, float]:
     """
     Updates the ELO ratings of two players based on the match outcome.
 
@@ -116,15 +113,6 @@ def update_elo(rating1: float, rating2: float, winner: int) -> tuple[float, floa
     return new_rating1, new_rating2
 
 
-class MatchResult(BaseModel):
-    """Result of a match between two hypotheses."""
-
-    id1: int
-    id2: int
-    winner: int
-    debate: str
-
-
 class EloTournament:
     """Manages a two-stage ELO ranking tournament for hypotheses."""
 
@@ -135,19 +123,19 @@ class EloTournament:
     ):
         self.llm = llm
         self.goal = goal
-        self.hypotheses: Dict[str, HypothesisWithID] = {}  # id -> Hypothesis object
+        self.hypotheses: Dict[str, ReviewedHypothesis] = {}  # id -> Hypothesis object
         self.ratings: Dict[str, float] = {}  # id -> ELO rating
-        self.match_history: Dict[Tuple[int, int, int], MatchResult] = {}
+        self.match_history: Dict[Tuple[int, int, int], RankingMatchResult] = {}
 
     def add_hypothesis(
-        self, hypothesis: HypothesisWithID, initial_rating: float = DEFAULT_ELO
+        self, hypothesis: ReviewedHypothesis, initial_rating: float = DEFAULT_ELO
     ):
         """Adds a new hypothesis to the tournament."""
-        if hypothesis.id not in self.hypotheses:
-            self.hypotheses[hypothesis.id] = hypothesis
-            self.ratings[hypothesis.id] = initial_rating
+        if hypothesis.uid not in self.hypotheses:
+            self.hypotheses[hypothesis.uid] = hypothesis
+            self.ratings[hypothesis.uid] = initial_rating
         else:
-            raise ValueError(f"Hypothesis {hypothesis.id} already exists.")
+            raise ValueError(f"Hypothesis {hypothesis.uid} already exists.")
 
     def get_sorted_hypotheses(self) -> List[Tuple[str, float]]:
         """Returns hypotheses sorted by ELO rating (descending)."""
@@ -155,8 +143,8 @@ class EloTournament:
 
     def _determine_winner(
         self,
-        hypo1: HypothesisWithID,
-        hypo2: HypothesisWithID,
+        hypo1: ReviewedHypothesis,
+        hypo2: ReviewedHypothesis,
         prompt_name: str,
     ) -> Tuple[int, str]:
         """
@@ -164,9 +152,9 @@ class EloTournament:
 
         Parameters
         ----------
-        hypo1 : HypothesisWithID
+        hypo1 : ReviewedHypothesis
             The first hypothesis.
-        hypo2 : HypothesisWithID
+        hypo2 : ReviewedHypothesis
             The second hypothesis.
         prompt_name : str
             The name of the prompt template to use (e.g., 'tournament').
@@ -180,10 +168,10 @@ class EloTournament:
         # Prepare inputs based on the prompt template structure
         prompt_input = {
             "goal": self.goal,
-            "hypothesis_1": hypo1.content,
-            "hypothesis_2": hypo2.content,
-            "review_1": hypo1.review,
-            "review_2": hypo2.review,
+            "hypothesis_1": hypo1.hypothesis,
+            "hypothesis_2": hypo2.hypothesis,
+            "review_1": hypo1.verification_result,
+            "review_2": hypo2.verification_result,
         }
 
         # Load and format the prompt
@@ -242,8 +230,8 @@ class EloTournament:
                 # If no history, run the match
                 winner, debate = self._determine_winner(hypo1, hypo2, "tournament")
 
-                self.match_history[pair] = MatchResult(
-                    id1=id1, id2=id2, winner=winner, debate=debate
+                self.match_history[pair] = RankingMatchResult(
+                    uid1=id1, uid2=id2, winner=winner, debate=debate
                 )
                 new_rating1, new_rating2 = update_elo(rating1, rating2, winner)
 
@@ -305,8 +293,8 @@ class EloTournament:
                     )
 
                     winner_id = id1 if winner == 1 else id2
-                    self.match_history[pair] = MatchResult(
-                        id1=id1, id2=id2, winner=winner, debate=debate
+                    self.match_history[pair] = RankingMatchResult(
+                        uid1=id1, uid2=id2, winner=winner, debate=debate
                     )
                     new_rating1, new_rating2 = update_elo(rating1, rating2, winner)
                     self.ratings[id1] = new_rating1
@@ -356,10 +344,10 @@ class EloTournament:
 
         for match_result in self.match_history.values():
             winner_id = (
-                match_result.id1 if match_result.winner == 1 else match_result.id2
+                match_result.uid1 if match_result.winner == 1 else match_result.uid2
             )
             loser_id = (
-                match_result.id2 if match_result.winner == 1 else match_result.id1
+                match_result.uid2 if match_result.winner == 1 else match_result.uid1
             )
 
             records[winner_id]["wins"] += 1

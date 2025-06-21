@@ -3,24 +3,6 @@ Generation agent
 ---------------
 - Literature exploration
 - Simulated scientific debates
-
-More details:
-- Searches the web for papers, reads the articles, and summarizes prior
-work. Using these summaries, it generates hypotheses.
-- Runs scientific debates for self-critique and self-play. These
-Socratic dialogues go into refining the hypotheses.
-- Each hypothesis comes with a set of testable assumptions and sub-assumptions
-This looks something like multihop reasoning with MCTS.
-- New hypotheses can be generated in later steps conditioned on the past hypotheses
-and feedback from the meta-review agent.
-
-TODO: Web search generation agent. This agent uses web search summaries to generate hypotheses.
-Unclear if these summaries should be compiled once and shared with other generation agents, or
-if it's a completely separate generation mode. My impression is that we should do deep research
-on the topic once at the beginning and the generation web search is just asking a handful of
-additional questions before formalizing a hypothesis.
-TODO: Add fields in the prompts for meta-review agent feedback and prior hypotheses.
-TODO: Consider treating the collaborative generation as a chatbot with Memory using LangGraph.
 """
 
 from dataclasses import dataclass
@@ -30,7 +12,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist import multiturn
-from coscientist.common import load_prompt
+from coscientist.common import load_prompt, parse_hypothesis_markdown
 from coscientist.custom_types import ParsedHypothesis
 from coscientist.reasoning_types import ReasoningType
 
@@ -39,7 +21,8 @@ class IndependentState(TypedDict):
     goal: str
     literature_review: str
     meta_review: str
-    result: str
+    hypothesis: ParsedHypothesis
+    _raw_result: str  # Private temporary field for markdown output
 
 
 class CollaborativeState(IndependentState, multiturn.MultiTurnState):
@@ -63,7 +46,6 @@ class CollaborativeConfig:
     agent_fields: Dict[str, str]
     agent_reasoning_types: Dict[str, ReasoningType]
     llms: Dict[str, BaseChatModel]
-    standardization_llm: BaseChatModel
     max_turns: int = 10
 
 
@@ -106,7 +88,6 @@ def build_generation_agent(
             config.agent_fields,
             config.agent_reasoning_types,
             config.llms,
-            config.standardization_llm,
             config.max_turns,
         )
     else:
@@ -135,7 +116,15 @@ def _independent_generation_node(
         reasoning_type=reasoning_type.value,
     )
     response_content = llm.invoke(prompt).content
-    return {**state, "result": response_content}
+    return {**state, "_raw_result": response_content}
+
+
+def _parsing_node(state: IndependentState) -> IndependentState:
+    """
+    Parse the raw markdown result into a structured ParsedHypothesis object.
+    """
+    parsed_hypothesis = parse_hypothesis_markdown(state["_raw_result"])
+    return {**state, "hypothesis": parsed_hypothesis}
 
 
 def _build_independent_generation_agent(
@@ -143,12 +132,10 @@ def _build_independent_generation_agent(
 ):
     """
     Builds and configures a LangGraph for a single-agent generation process using the independent_generation.md template.
-    The agent's output is markdown with sections: Evidence, Hypothesis, Reasoning, Assumptions Table.
+    The agent's output is parsed into a structured ParsedHypothesis object.
 
     Parameters
     ----------
-    agent_name : str
-        Name of the agent.
     field : str
         Field or domain of expertise.
     reasoning_type : ReasoningType
@@ -166,10 +153,22 @@ def _build_independent_generation_agent(
         "generator",
         lambda state: _independent_generation_node(state, field, reasoning_type, llm),
     )
-    graph.add_edge("generator", END)
+    graph.add_node("parser", _parsing_node)
+
+    graph.add_edge("generator", "parser")
+    graph.add_edge("parser", END)
 
     graph.set_entry_point("generator")
     return graph.compile()
+
+
+def _collaborative_parsing_node(state: CollaborativeState) -> CollaborativeState:
+    """
+    Parse the final result from collaborative generation into a structured ParsedHypothesis object.
+    """
+    transcript_str = "\n".join([f"{name}: {msg}" for name, msg in state["transcript"]])
+    parsed_hypothesis = parse_hypothesis_markdown(transcript_str)
+    return {**state, "hypothesis": parsed_hypothesis}
 
 
 def _build_collaborative_generation_agent(
@@ -177,10 +176,9 @@ def _build_collaborative_generation_agent(
     agent_fields: Dict[str, str],
     agent_reasoning_types: Dict[str, ReasoningType],
     llms: Dict[str, BaseChatModel],
-    standardization_llm: BaseChatModel,
     max_turns: int = 10,
 ) -> StateGraph:
-    """Build collaborative generation agent."""
+    """Build collaborative generation agent with structured output parsing."""
 
     # Create agent node functions
     agent_node_fns = {}
@@ -197,61 +195,41 @@ def _build_collaborative_generation_agent(
 
     # Create moderator and post-processor
     moderator_fn = multiturn.create_moderator_node_fn(
-        agent_names, lambda msg: "FINAL HYPOTHESIS:" in msg, max_turns
-    )
-    post_processor_fn = multiturn.create_post_processor_node_fn(
-        standardization_llm, "standardize_hypothesis"
+        agent_names, lambda msg: "#FINAL REPORT#" in msg, max_turns
     )
 
-    return multiturn.build_multi_turn_agent(
-        CollaborativeState, agent_node_fns, moderator_fn, post_processor_fn
-    )
+    # Build the base multi-turn agent graph (without compiling it yet)
+    base_graph = StateGraph(CollaborativeState)
 
+    # Add agent nodes
+    for agent_name, agent_fn in agent_node_fns.items():
+        base_graph.add_node(agent_name, agent_fn)
 
-def parse_hypothesis_markdown(markdown_text: str) -> ParsedHypothesis:
-    """
-    Parse markdown text with # headings to extract Hypothesis, Reasoning, and Assumptions sections.
+    # Add moderator node
+    base_graph.add_node("moderator", moderator_fn)
 
-    Parameters
-    ----------
-    markdown_text : str
-        Markdown text containing sections with # headings for Hypothesis, Reasoning, and Assumptions
+    # Add our custom parsing node
+    base_graph.add_node("parser", _collaborative_parsing_node)
 
-    Returns
-    -------
-    ParsedHypothesis
-        Structured output with hypothesis, reasoning, and assumptions fields extracted from markdown
-    """
-    # Split the text by # to get sections
-    sections = markdown_text.split("#")
+    # Define edges: agents -> moderator
+    for agent_name in agent_node_fns.keys():
+        base_graph.add_edge(agent_name, "moderator")
 
-    # Initialize fields
-    hypothesis = ""
-    reasoning = ""
-    assumptions = ""
+    # Conditional edges from moderator
+    def route_after_moderator(state: CollaborativeState):
+        if state["finished"]:
+            return "parser"
+        return state["next_agent"]
 
-    # Process each section
-    for section in sections:
-        section = section.strip()
-        if not section:
-            continue
+    routing_map = {name: name for name in agent_node_fns.keys()}
+    routing_map["parser"] = "parser"
 
-        # Split section into title and content
-        lines = section.split("\n", 1)
-        if len(lines) < 2:
-            continue
+    base_graph.add_conditional_edges("moderator", route_after_moderator, routing_map)
 
-        title = lines[0].strip().lower()
-        content = lines[1].strip()
+    # Parser goes to END
+    base_graph.add_edge("parser", END)
 
-        # Match section titles (case-insensitive)
-        if "hypothesis" in title:
-            hypothesis = content
-        elif "reasoning" in title:
-            reasoning = content
-        elif "assumption" in title:  # Matches both "Assumption" and "Assumptions"
-            assumptions = content
+    # Set entry point
+    base_graph.set_entry_point(list(agent_node_fns.keys())[0])
 
-    return ParsedHypothesis(
-        hypothesis=hypothesis, reasoning=reasoning, assumptions=assumptions
-    )
+    return base_graph.compile()

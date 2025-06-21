@@ -34,6 +34,7 @@ setup(
         "openai>=1.0.0",
         "typing-extensions>=4.0.0",
         "ipython>=8.0.0",  # For notebook support
+        "gpt-researcher>=3.3.0",
     ],
     extras_require={
         "dev": [
