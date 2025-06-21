@@ -14,8 +14,6 @@ of the winning hypothesis.
 - Based on the Proximity agents graph, similar hypotheses are ranked
 against each other. New and top-ranked hypotheses are prioritized.
 
-TODO: Make an agent that strips out feedback/criticism of a specific hypothesis
-from the transcript -- summarizing common themes.
 TODO: Add a queue of hypotheses ordered by rank this will limit the number of hypotheses
 that need to be evaluated by dropping the lowest ranked hypotheses that drop outside of the
 queue.
