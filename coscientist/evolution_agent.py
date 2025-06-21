@@ -34,6 +34,7 @@ class EvolveFromFeedbackState(TypedDict):
 
     goal: str
     parent_hypothesis: ReviewedHypothesis
+    meta_review: str
     evolved_hypothesis: ParsedHypothesis
 
 
@@ -93,6 +94,7 @@ def _evolve_from_feedback_node(
         goal=state["goal"],
         hypothesis=state["parent_hypothesis"].hypothesis,
         review=state["parent_hypothesis"].verification_result,
+        meta_review=state["meta_review"],
     )
     response_content = llm.invoke(prompt).content
     parsed_hypothesis = parse_hypothesis_markdown(response_content)
