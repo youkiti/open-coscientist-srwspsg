@@ -18,13 +18,13 @@ divergent from existing ones.
 that should in principle be better.
 """
 
-from dataclasses import dataclass
-from typing import List, TypedDict, Union
+from typing import List, TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
-from coscientist.common import load_prompt
+from coscientist.common import load_prompt, parse_hypothesis_markdown
+from coscientist.custom_types import ParsedHypothesis, ReviewedHypothesis
 
 
 class EvolveFromFeedbackState(TypedDict):
@@ -33,10 +33,8 @@ class EvolveFromFeedbackState(TypedDict):
     """
 
     goal: str
-    hypothesis: str
-    feedback: str
-    evolution_response: str
-    result: str
+    parent_hypothesis: ReviewedHypothesis
+    evolved_hypothesis: ParsedHypothesis
 
 
 class OutOfTheBoxState(TypedDict):
@@ -45,21 +43,13 @@ class OutOfTheBoxState(TypedDict):
     """
 
     goal: str
-    top_hypotheses: List[str]
-    evolution_response: str
-    result: str
-
-
-@dataclass
-class EvolutionConfig:
-    """Configuration for evolution agents."""
-
-    llm: BaseChatModel
+    top_hypotheses: List[ReviewedHypothesis]
+    evolved_hypothesis: ParsedHypothesis
 
 
 def build_evolution_agent(
     mode: str,
-    config: EvolutionConfig,
+    llm: BaseChatModel,
 ) -> StateGraph:
     """
     Unified builder function for evolution agents that supports both evolve_from_feedback and out_of_the_box modes.
@@ -68,8 +58,8 @@ def build_evolution_agent(
     ----------
     mode : str
         The mode of operation, either "evolve_from_feedback" or "out_of_the_box".
-    config : EvolutionConfig
-        Configuration object containing the LLM to use for both evolution and standardization.
+    llm : BaseChatModel
+        The language model to use for both evolution and standardization.
 
     Returns
     -------
@@ -82,9 +72,9 @@ def build_evolution_agent(
         If mode is invalid.
     """
     if mode == "evolve_from_feedback":
-        return _build_evolve_from_feedback_agent(config.llm)
+        return _build_evolve_from_feedback_agent(llm)
     elif mode == "out_of_the_box":
-        return _build_out_of_the_box_agent(config.llm)
+        return _build_out_of_the_box_agent(llm)
     else:
         raise ValueError(
             "mode must be either 'evolve_from_feedback' or 'out_of_the_box'"
@@ -101,11 +91,13 @@ def _evolve_from_feedback_node(
     prompt = load_prompt(
         "evolve_from_feedback",
         goal=state["goal"],
-        hypothesis=state["hypothesis"],
-        feedback=state["feedback"],
+        hypothesis=state["parent_hypothesis"].hypothesis,
+        review=state["parent_hypothesis"].verification_result,
     )
     response_content = llm.invoke(prompt).content
-    return {**state, "evolution_response": response_content}
+    parsed_hypothesis = parse_hypothesis_markdown(response_content)
+    parsed_hypothesis.parent_uid = state["parent_hypothesis"].uid
+    return {**state, "evolved_hypothesis": parsed_hypothesis}
 
 
 def _out_of_the_box_node(
@@ -125,21 +117,6 @@ def _out_of_the_box_node(
     )
     response_content = llm.invoke(prompt).content
     return {**state, "evolution_response": response_content}
-
-
-def _standardization_node(
-    state: Union[EvolveFromFeedbackState, OutOfTheBoxState],
-    llm: BaseChatModel,
-) -> Union[EvolveFromFeedbackState, OutOfTheBoxState]:
-    """
-    Standardization node that formats the evolution response using the standardize_hypothesis prompt.
-    """
-    prompt = load_prompt(
-        "standardize_hypothesis",
-        transcript=state["evolution_response"],
-    )
-    response_content = llm.invoke(prompt).content
-    return {**state, "result": response_content}
 
 
 def _build_evolve_from_feedback_agent(llm: BaseChatModel) -> StateGraph:
@@ -162,13 +139,7 @@ def _build_evolve_from_feedback_agent(llm: BaseChatModel) -> StateGraph:
         "evolution",
         lambda state: _evolve_from_feedback_node(state, llm),
     )
-    graph.add_node(
-        "standardization",
-        lambda state: _standardization_node(state, llm),
-    )
-
-    graph.add_edge("evolution", "standardization")
-    graph.add_edge("standardization", END)
+    graph.add_edge("evolution", END)
 
     graph.set_entry_point("evolution")
     return graph.compile()
@@ -194,13 +165,8 @@ def _build_out_of_the_box_agent(llm: BaseChatModel) -> StateGraph:
         "evolution",
         lambda state: _out_of_the_box_node(state, llm),
     )
-    graph.add_node(
-        "standardization",
-        lambda state: _standardization_node(state, llm),
-    )
 
-    graph.add_edge("evolution", "standardization")
-    graph.add_edge("standardization", END)
+    graph.add_edge("evolution", END)
 
     graph.set_entry_point("evolution")
     return graph.compile()
