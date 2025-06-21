@@ -108,7 +108,12 @@ def _out_of_the_box_node(
     Evolution node for generating out-of-the-box ideas from top hypotheses.
     """
     # Convert list of hypotheses to formatted string
-    hypotheses_text = "\n".join([f"- {hyp}" for hyp in state["top_hypotheses"]])
+    hypotheses_text = "\n".join(
+        [
+            f"- {hyp.hypothesis} (Elo rating: {hyp.elo_rating})"
+            for hyp in state["top_hypotheses"]
+        ]
+    )
 
     prompt = load_prompt(
         "out_of_the_box",
