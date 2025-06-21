@@ -1,5 +1,5 @@
 import uuid
-from typing import List
+from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -20,9 +20,22 @@ class ParsedHypothesis(BaseModel):
     )
 
 
-class HypothesisWithID(BaseModel):
-    """A hypothesis with an ID."""
+class ReviewedHypothesis(ParsedHypothesis):
+    """Structured output for reviewed hypothesis."""
 
-    id: int
-    content: str
-    review: str
+    causal_reasoning: str = Field(description="The causal reasoning for the hypothesis")
+    assumption_research_results: Dict[str, str] = Field(
+        description="A dictionary of assumption research results"
+    )
+    verification_result: str = Field(
+        description="The result of the deep verification process"
+    )
+
+
+class RankingMatchResult(BaseModel):
+    """Result of a match between two hypotheses."""
+
+    uid1: str = Field(description="Unique identifier for the first hypothesis")
+    uid2: str = Field(description="Unique identifier for the second hypothesis")
+    winner: int = Field(description="The winner of the match (1 or 2)")
+    debate: str = Field(description="The debate between the two hypotheses")

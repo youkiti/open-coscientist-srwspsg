@@ -8,6 +8,7 @@ Implementation uses LangGraph to:
 """
 
 import asyncio
+import os
 import re
 from typing import List, TypedDict
 
@@ -92,6 +93,7 @@ async def _write_subtopic_report(subtopic: str, main_goal: str) -> str:
         parent_query=main_goal,
         verbose=True,
         tone=Tone.Objective,
+        config_path=os.path.join(os.path.dirname(__file__), "researcher_config.json"),
     )
 
     # Conduct research and generate report
