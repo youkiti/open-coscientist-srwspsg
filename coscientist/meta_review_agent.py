@@ -16,11 +16,7 @@ areas to follow up with real and specific experiments. This
 gets fed to the Generation agent in later rounds. Format of the
 overview can match the style of a review paper or a grant proposal
 (like an NIH Specific Aims Page).
-TODO: Adjust the meta-review prompt to include the tournament state with
-ELO ratings. Probably need to add the hypotheses with IDs to the debates
-so that the LLM knows which ones are being discussed. Right now it just says
-Hypothesis 1 vs Hypothesis 2. Should also specify something like which round
-a debate is from?
+- Decides topics for additional research to follow up on.
 """
 
 from typing import List, Tuple, TypedDict
@@ -29,6 +25,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
+from coscientist.custom_types import ReviewedHypothesis
 from coscientist.ranking_agent import EloTournament
 
 
@@ -43,9 +40,63 @@ class MetaReviewTournamentState(TypedDict):
     result: str
 
 
-def _format_hypothesis_with_rating(hyp_id: str, hypothesis, rating: float) -> str:
+def build_meta_review_agent(llm: BaseChatModel) -> StateGraph:
+    """
+    Builds and configures a LangGraph for meta-review analysis.
+
+    Parameters
+    ----------
+    llm : BaseChatModel
+        The language model to use for meta-review generation.
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the meta-review agent.
+    """
+    graph = StateGraph(MetaReviewTournamentState)
+
+    graph.add_node(
+        "meta_review",
+        lambda state: _meta_review_node(state, llm),
+    )
+
+    graph.add_edge("meta_review", END)
+    graph.set_entry_point("meta_review")
+    return graph.compile()
+
+
+def build_top_hypotheses_review_agent(llm: BaseChatModel) -> StateGraph:
+    """
+    Builds and configures a LangGraph for top hypotheses review analysis.
+
+    Parameters
+    ----------
+    llm : BaseChatModel
+        The language model to use for top hypotheses review generation.
+
+    Returns
+    -------
+    StateGraph
+        A compiled LangGraph for the top hypotheses review agent.
+    """
+    graph = StateGraph(MetaReviewTournamentState)
+
+    graph.add_node(
+        "top_hypotheses_review",
+        lambda state: _top_hypotheses_review_node(state, llm),
+    )
+
+    graph.add_edge("top_hypotheses_review", END)
+    graph.set_entry_point("top_hypotheses_review")
+    return graph.compile()
+
+
+def _format_hypothesis_with_rating(
+    hypothesis: ReviewedHypothesis, rating: float
+) -> str:
     """Helper function to format a hypothesis with its ELO rating."""
-    return f"Hypothesis {hyp_id} (ELO: {rating:.2f}): {hypothesis.content}"
+    return f"Hypothesis {hypothesis.uid} (ELO: {rating:.2f}): {hypothesis.hypothesis}"
 
 
 def _get_top_hypotheses_data(
@@ -132,55 +183,3 @@ def _top_hypotheses_review_node(
     )
     response_content = llm.invoke(prompt).content
     return {**state, "result": response_content}
-
-
-def build_meta_review_agent(llm: BaseChatModel) -> StateGraph:
-    """
-    Builds and configures a LangGraph for meta-review analysis.
-
-    Parameters
-    ----------
-    llm : BaseChatModel
-        The language model to use for meta-review generation.
-
-    Returns
-    -------
-    StateGraph
-        A compiled LangGraph for the meta-review agent.
-    """
-    graph = StateGraph(MetaReviewTournamentState)
-
-    graph.add_node(
-        "meta_review",
-        lambda state: _meta_review_node(state, llm),
-    )
-
-    graph.add_edge("meta_review", END)
-    graph.set_entry_point("meta_review")
-    return graph.compile()
-
-
-def build_top_hypotheses_review_agent(llm: BaseChatModel) -> StateGraph:
-    """
-    Builds and configures a LangGraph for top hypotheses review analysis.
-
-    Parameters
-    ----------
-    llm : BaseChatModel
-        The language model to use for top hypotheses review generation.
-
-    Returns
-    -------
-    StateGraph
-        A compiled LangGraph for the top hypotheses review agent.
-    """
-    graph = StateGraph(MetaReviewTournamentState)
-
-    graph.add_node(
-        "top_hypotheses_review",
-        lambda state: _top_hypotheses_review_node(state, llm),
-    )
-
-    graph.add_edge("top_hypotheses_review", END)
-    graph.set_entry_point("top_hypotheses_review")
-    return graph.compile()
