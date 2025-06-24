@@ -394,7 +394,7 @@ async def _write_assumption_research_report(assumption_evaluation_query: str) ->
         query=assumption_evaluation_query,
         report_type="research_report",
         report_format="markdown",
-        verbose=True,
+        verbose=False,
         tone=Tone.Objective,
         config_path=os.path.join(os.path.dirname(__file__), "researcher_config.json"),
     )
@@ -464,12 +464,7 @@ def _sequential_assumption_research_node(
             query += f"Sub-assumption {i}: {sub_assumption} "
 
         # Run research for this assumption
-        try:
-            result = asyncio.run(_write_assumption_research_report(query))
-            assumption_research_results[assumption] = result
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to conduct research for assumption '{assumption}': {str(e)}"
-            )
+        result = asyncio.run(_write_assumption_research_report(query))
+        assumption_research_results[assumption] = result
 
     return {"_assumption_research_results": assumption_research_results}

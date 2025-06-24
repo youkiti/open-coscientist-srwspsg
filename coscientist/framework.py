@@ -1,4 +1,303 @@
 """
-The async task framework with a Supervisor that manages
-a task queue, and assigns tasks to Agents.
+The overall framework that takes a CoscientistStateManager from global_state.py,
+setups the agents, and organizes the multi-agent system. The framework will be controlled
+by a supervisor agent.
 """
+
+import math
+import random
+from typing import Dict, List
+
+import numpy as np
+from langchain_anthropic import ChatAnthropic
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+from coscientist.generation_agent import (
+    CollaborativeConfig,
+    IndependentConfig,
+    build_generation_agent,
+)
+from coscientist.global_state import CoscientistStateManager
+from coscientist.literature_review_agent import build_literature_review_agent
+from coscientist.meta_review_agent import build_meta_review_agent
+from coscientist.reasoning_types import ReasoningType
+from coscientist.reflection_agent import build_deep_verification_agent
+
+# Generally reasoning models are better suited for the scientific reasoning
+# tasks entailed by the Coscientist system.
+_SMARTER_LLM_POOL = {
+    "o3": ChatOpenAI(model="o3", max_tokens=50_000, max_retries=3),
+    "gemini-2.5-pro": ChatGoogleGenerativeAI(
+        model="gemini-2.5-pro",
+        temperature=1.0,
+        max_retries=3,
+        max_tokens=50_000,
+    ),
+    "claude-sonnet-4-20250514": ChatAnthropic(
+        model="claude-sonnet-4-20250514", max_tokens=50_000, max_retries=3
+    ),
+}
+_CHEAPER_LLM_POOL = {
+    "o4-mini": ChatOpenAI(model="o4-mini", max_tokens=50_000, max_retries=3),
+    "gemini-2.5-flash": ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=1.0,
+        max_retries=3,
+        max_tokens=50_000,
+    ),
+    # Anthropic doesn't have a good cheaper model
+    "claude-sonnet-4-20250514": ChatAnthropic(
+        model="claude-sonnet-4-20250514", max_tokens=50_000, max_retries=3
+    ),
+}
+
+
+class CoscientistConfig:
+    """
+    Configuration for the Coscientist system.
+
+    Note that the config for GPTResearcher which is used throughout the system
+    is defined in `researcher_config.json`.
+
+    Attributes
+    ----------
+    literature_review_agent_llm : BaseChatModel
+        The language model for the literature review. This LLM decides on the research
+        subtopics for GPTResearcher.
+    generation_agent_llms : Dict[str, BaseChatModel]
+        The language models for the generation agents
+    reflection_agent_llms : Dict[str, BaseChatModel]
+        The language models for the reflection agents
+    evolution_agent_llms : Dict[str, BaseChatModel]
+        The language models for the evolution agents
+    meta_review_agent_llm : BaseChatModel
+        The language model for the meta-review. Gemini works best because of the long
+        context window that isn't severely rate limited like other providers.
+    proximity_agent_embedding_model : Embeddings
+        The embedding model for the proximity agent
+    specialist_fields : List[str]
+        The fields of expertise for generation agents. This list should be expanded
+        by the configuration agent.
+
+    """
+
+    def __init__(
+        self,
+        literature_review_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
+            "claude-sonnet-4-20250514"
+        ],
+        generation_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        reflection_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        evolution_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        meta_review_agent_llm: BaseChatModel = _CHEAPER_LLM_POOL["gemini-2.5-flash"],
+        proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
+            model="text-embedding-3-small", dimensions=256
+        ),
+        specialist_fields: List[str] = ["biology"],
+    ):
+        # TODO: Add functionality for overriding GPTResearcher config.
+        self.literature_review_agent_llm = literature_review_agent_llm
+        self.generation_agent_llms = generation_agent_llms
+        self.reflection_agent_llms = reflection_agent_llms
+        self.evolution_agent_llms = evolution_agent_llms
+        self.meta_review_agent_llm = meta_review_agent_llm
+        self.proximity_agent_embedding_model = proximity_agent_embedding_model
+        self.specialist_fields = specialist_fields
+
+
+class CoscientistFramework:
+    """
+    The framework that takes a CoscientistStateManager from global_state.py,
+    setups the agents, and organizes the multi-agent system. The framework will be controlled
+    by a supervisor agent.
+    """
+
+    def __init__(
+        self, config: CoscientistConfig, state_manager: CoscientistStateManager
+    ):
+        self.config = config
+        self.state_manager = state_manager
+
+    def list_generation_llm_names(self) -> List[str]:
+        """
+        List the names of the generation agents.
+        """
+        return list(self.config.generation_agent_llms.keys())
+
+    def list_generation_modes(self) -> List[str]:
+        """
+        List the names of the generation modes.
+        """
+        return ["independent", "collaborative"]
+
+    def list_reflection_llm_names(self) -> List[str]:
+        """
+        List the names of the reflection agents.
+        """
+        return list(self.config.reflection_agent_llms.keys())
+
+    def list_evolution_llm_names(self) -> List[str]:
+        """
+        List the names of the evolution agents.
+        """
+        return list(self.config.evolution_agent_llms.keys())
+
+    def list_evolution_modes(self) -> List[str]:
+        """
+        List the names of the evolution modes.
+        """
+        return ["evolve_from_feedback", "out_of_the_box"]
+
+    def list_specialist_fields(self) -> List[str]:
+        """
+        List the names of the specialist fields.
+        """
+        return self.config.specialist_fields
+
+    def list_reasoning_types(self) -> List[str]:
+        """
+        List the names of the reasoning types.
+        """
+        return list(ReasoningType.__members__.keys())
+
+    def generate_new_hypothesis(
+        self,
+        mode: str,
+        config: IndependentConfig | CollaborativeConfig,
+        first_agent_name: str | None = None,
+    ) -> None:
+        """
+        Run the hypothesis generation for a given mode and config.
+        """
+        generation_agent = build_generation_agent(mode, config)
+        initial_generation_state = self.state_manager.next_generation_state(
+            mode, first_agent_name
+        )
+        final_generation_state = generation_agent.invoke(initial_generation_state)
+        self.state_manager.add_generated_hypothesis(
+            final_generation_state["hypothesis"]
+        )
+
+    async def start(self, n_hypotheses: int = 8) -> None:
+        """
+        Starts the Coscientist system with a fixed number of initial
+        hypotheses.
+        """
+        assert n_hypotheses >= 2, "Must generate at least two hypotheses to start"
+        if self.state_manager.is_started:
+            raise ValueError(
+                "Coscientist system has already been started. "
+                "Use the step method instead!"
+            )
+
+        # Perform the initial literature review.
+        if not self.state_manager.has_literature_review:
+            literature_review_agent = build_literature_review_agent(
+                self.config.literature_review_agent_llm
+            )
+            initial_lit_review_state = self.state_manager.next_literature_review_state(
+                max_subtopics=2
+            )
+            final_lit_review_state = await literature_review_agent.ainvoke(
+                initial_lit_review_state
+            )
+            self.state_manager.update_literature_review(final_lit_review_state)
+
+        # TODO: Make this async
+        for _ in range(max(0, n_hypotheses - self.state_manager.total_hypotheses)):
+            # Randomly pick a mode, a reasoning type, and a specialist field.
+            # mode = random.choice(self.list_generation_modes())
+            mode = "collaborative"
+            if mode == "independent":
+                llm_name = random.choice(self.list_generation_llm_names())
+                reasoning_type = random.choice(self.list_reasoning_types())
+                specialist_field = random.choice(self.list_specialist_fields())
+                config = IndependentConfig(
+                    llm=self.config.generation_agent_llms[llm_name],
+                    reasoning_type=getattr(ReasoningType, reasoning_type),
+                    field=specialist_field,
+                )
+            elif mode == "collaborative":
+                llm_names = np.random.choice(
+                    self.list_generation_llm_names(), 2
+                ).tolist()
+                specialist_fields = np.random.choice(
+                    self.list_specialist_fields(), 2
+                ).tolist()
+                reasoning_types = np.random.choice(
+                    self.list_reasoning_types(), 2
+                ).tolist()
+
+                agent_names = [
+                    f"{llm_name}_{field}"
+                    for llm_name, field in zip(llm_names, specialist_fields)
+                ]
+                config = CollaborativeConfig(
+                    agent_names=agent_names,
+                    agent_fields={
+                        name: field
+                        for name, field in zip(agent_names, specialist_fields)
+                    },
+                    agent_reasoning_types={
+                        name: getattr(ReasoningType, reasoning_type)
+                        for name, reasoning_type in zip(agent_names, reasoning_types)
+                    },
+                    llms={
+                        name: self.config.generation_agent_llms[llm_name]
+                        for name, llm_name in zip(agent_names, llm_names)
+                    },
+                    max_turns=10,
+                )
+            # Make a new hypothesis and immediately advance it to be reviewed.
+            self.generate_new_hypothesis(mode, config, first_agent_name=agent_names[0])
+
+        # Move generated hypotheses to the reflection queue
+        self.state_manager.advance_all_hypotheses(kind="generated")
+
+        # Now run through the review queue and perform deep verification
+        while not self.state_manager.reflection_queue_is_empty:
+            # This pops from the reflection queue until it's empty
+            initial_reflection_state = self.state_manager.next_reflection_state()
+            print(
+                f"Reflecting on hypothesis {initial_reflection_state["hypothesis_to_review"].hypothesis}"
+            )
+            llm_name = random.choice(self.list_reflection_llm_names())
+            reflection_agent = build_deep_verification_agent(
+                llm=self.config.reflection_agent_llms[llm_name],
+                review_llm=self.config.meta_review_agent_llm,
+                parallel=False,
+                checkpointer=None,
+            )
+            final_reflection_state = reflection_agent.invoke(initial_reflection_state)
+            self.state_manager.add_reviewed_hypothesis(
+                final_reflection_state["reviewed_hypothesis"]
+            )
+
+        # Move the reviewed hypothesis to the EloTournament.
+        self.state_manager.advance_all_hypotheses(kind="reviewed")
+
+        # Run the EloTournament
+        # The top k for the bracket should the nearest power of
+        # 2 less than the number of hypotheses and no more than 16.
+        k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
+        # TODO: Figure out the right LLM for this job; should it be different from meta-review?
+        # Feels like it should be fixed for the sake of consistency though
+        self.state_manager.run_tournament(
+            llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
+        )
+
+        # Now run meta-review on the tournament results
+        initial_meta_review_state = self.state_manager.next_meta_review_state(
+            top_k=k_bracket
+        )
+        meta_review_agent = build_meta_review_agent(self.config.meta_review_agent_llm)
+        final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
+        self.state_manager.update_meta_review(final_meta_review_state["result"])
+
+        return
+
+    def step(self):
+        pass

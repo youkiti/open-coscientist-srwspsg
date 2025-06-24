@@ -121,16 +121,14 @@ def _meta_review_node(
     ratings_entries = []
     for hyp_id, rating in sorted_hypotheses:
         hypothesis = tournament.hypotheses[hyp_id]
-        ratings_entries.append(
-            _format_hypothesis_with_rating(hyp_id, hypothesis, rating)
-        )
+        ratings_entries.append(_format_hypothesis_with_rating(hypothesis, rating))
     ratings_text = "\n".join(ratings_entries)
 
     # Build debates text from match history
     debates_entries = []
     for i, match_result in enumerate(tournament.match_history.values(), 1):
         debate_header = (
-            f"Debate {i}: Hypothesis {match_result.id1} vs Hypothesis {match_result.id2} "
+            f"Debate {i}: Hypothesis {match_result.uid1} vs Hypothesis {match_result.uid2} "
             f"(Winner: {match_result.winner})"
         )
         debates_entries.append(f"{debate_header}\n{match_result.debate}")

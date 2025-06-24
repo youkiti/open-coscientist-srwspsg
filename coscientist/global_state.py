@@ -1,30 +1,12 @@
-"""
-Defines a global state for the Coscientist system. This global state will have persistence by
-writing to pickle files after every run of the meta-review agent. It will need
-to manage outputs from the six main agents. This will facilitate passing inputs and outputs
-throughout the multi-agent system.
-
-Nodes:
-* Generation
-- A list of IndependentState or CollaborativeState typed dictionaries.
-* Reflection
-- A list of ReflectionState typed dictionaries.
-* Ranking
-- The latest EloTournament object.
-* Evolution
-- A list of EvolveFromFeedbackState or OutOfTheBoxState typed dictionaries.
-* Meta-review
-- The latest MetaReviewState
-* Proximity
-- The latest ProximityGraph object.
-"""
-
 import os
 import pickle
 from dataclasses import dataclass
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import List, Literal, Optional, Union
+
+from langchain_core.language_models import BaseChatModel
 
 from coscientist.custom_types import ParsedHypothesis, ReviewedHypothesis
 from coscientist.evolution_agent import EvolveFromFeedbackState, OutOfTheBoxState
@@ -34,6 +16,45 @@ from coscientist.meta_review_agent import MetaReviewTournamentState
 from coscientist.proximity_agent import ProximityGraph
 from coscientist.ranking_agent import EloTournament
 from coscientist.reflection_agent import ReflectionState
+
+# Global configuration for output directory
+_OUTPUT_DIR = os.environ.get("COSCIENTIST_DIR", os.path.expanduser("~/.coscientist"))
+
+
+def _maybe_save(n: int = 1):
+    """
+    Decorator to auto-save state after every n method calls.
+
+    Each decorated method maintains its own independent counter.
+
+    Parameters
+    ----------
+    n : int
+        Save frequency - save after every n calls (default: 1, set to 0 to disable)
+    """
+
+    def decorator(func):
+        # Initialize counter for this specific method
+        func._save_counter = 0
+        func._save_frequency = n
+
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Execute the original method
+            result = func(self, *args, **kwargs)
+
+            # Handle auto-save logic if enabled
+            if func._save_frequency > 0:
+                func._save_counter += 1
+                if func._save_counter >= func._save_frequency:
+                    func._save_counter = 0  # Reset counter
+                    self._state.save()
+
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 @dataclass
@@ -53,6 +74,7 @@ class CoscientistState:
     evolved_hypotheses: List[Union[EvolveFromFeedbackState, OutOfTheBoxState]]
     meta_review: Optional[MetaReviewTournamentState]
     proximity_graph: Optional[ProximityGraph]
+    reflection_queue: List[ParsedHypothesis]
     _iteration: int = 0  # Hidden parameter for tracking saves
 
     def __init__(self, goal: str):
@@ -64,110 +86,20 @@ class CoscientistState:
         self.evolved_hypotheses = []
         self.meta_review = None
         self.proximity_graph = None
+        self.reflection_queue = []
         self._iteration = 0
 
-    # Methods for appending to lists
-    def add_generated_hypothesis(
-        self, hypothesis: Union[IndependentState, CollaborativeState]
-    ) -> None:
-        """
-        Add a generated hypothesis to the collection.
-
-        Parameters
-        ----------
-        hypothesis : Union[IndependentState, CollaborativeState]
-            The hypothesis state to add
-        """
-        self.generated_hypotheses.append(hypothesis)
-
-    def add_reviewed_hypothesis(self, reviewed_hypothesis: ReviewedHypothesis) -> None:
-        """
-        Add a reviewed hypothesis result to the collection.
-
-        Parameters
-        ----------
-        reviewed_hypothesis : ReviewedHypothesis
-            The reviewed hypothesis state to add
-        """
-        self.reviewed_hypotheses.append(reviewed_hypothesis)
-
-    def add_evolved_hypothesis(
-        self, evolved_hypothesis: Union[EvolveFromFeedbackState, OutOfTheBoxState]
-    ) -> None:
-        """
-        Add an evolved hypothesis to the collection.
-
-        Parameters
-        ----------
-        evolved_hypothesis : Union[EvolveFromFeedbackState, OutOfTheBoxState]
-            The evolved hypothesis state to add
-        """
-        self.evolved_hypotheses.append(evolved_hypothesis)
-
-    def update_literature_review(
-        self, literature_review: LiteratureReviewState
-    ) -> None:
-        """
-        Update the literature review state.
-
-        Parameters
-        ----------
-        literature_review : LiteratureReviewState
-            The new literature review state
-        """
-        self.literature_review = literature_review
-
-    # Methods for updating single objects
-    def update_tournament(self, tournament: EloTournament) -> None:
-        """
-        Update the tournament state.
-
-        Parameters
-        ----------
-        tournament : EloTournament
-            The new tournament state
-        """
-        self.tournament = tournament
-
-    def update_meta_review(self, meta_review: MetaReviewTournamentState) -> None:
-        """
-        Update the meta-review state.
-
-        Parameters
-        ----------
-        meta_review : MetaReviewTournamentState
-            The new meta-review state
-        """
-        self.meta_review = meta_review
-
-    def update_proximity_graph(self, proximity_graph: ProximityGraph) -> None:
-        """
-        Update the proximity graph.
-
-        Parameters
-        ----------
-        proximity_graph : ProximityGraph
-            The new proximity graph
-        """
-        self.proximity_graph = proximity_graph
-
     # Persistence methods
-    def save(self, directory: Optional[str] = None) -> str:
+    def save(self) -> str:
         """
         Save the current state to a pickle file.
-
-        Parameters
-        ----------
-        directory : Optional[str]
-            Directory to save the checkpoint. Defaults to ~/.coscientist
 
         Returns
         -------
         str
             Path to the saved checkpoint file
         """
-        if directory is None:
-            directory = os.path.expanduser("~/.coscientist")
+        directory = _OUTPUT_DIR
 
         # Create directory if it doesn't exist
         Path(directory).mkdir(parents=True, exist_ok=True)
@@ -220,7 +152,7 @@ class CoscientistState:
             List of checkpoint filepaths, sorted by modification time (newest first)
         """
         if directory is None:
-            directory = os.path.expanduser("~/.coscientist")
+            directory = _OUTPUT_DIR
 
         if not os.path.exists(directory):
             return []
@@ -278,10 +210,113 @@ class CoscientistStateManager:
         state : CoscientistState
             The state object to manage
         """
-        self.state = state
-        self.reflection_queue: List[ParsedHypothesis] = []
+        # This state should not be accessed directly. All the methods
+        # that update the state have logic to save checkpoints.
+        self._state = state
         self._setup()
 
+    @property
+    def is_started(self) -> bool:
+        """
+        Check if the Coscientist system has started.
+        """
+        # Completing the first meta-review signals that
+        # the system has finished one full iteration.
+        return self._state.meta_review is not None
+
+    @property
+    def has_literature_review(self) -> bool:
+        """
+        Check if the Coscientist system has completed the literature review.
+        """
+        return self._state.literature_review is not None
+
+    @property
+    def total_hypotheses(self) -> int:
+        """
+        Get the total number of hypotheses in the system.
+        """
+        return (
+            len(self._state.generated_hypotheses)
+            + len(self._state.reviewed_hypotheses)
+            + len(self._state.evolved_hypotheses)
+            + len(self._state.tournament.hypotheses)
+        )
+
+    @property
+    def reflection_queue_is_empty(self) -> bool:
+        """
+        Check if the reflection queue is empty.
+        """
+        return len(self._state.reflection_queue) == 0
+
+    @_maybe_save(n=1)
+    def add_generated_hypothesis(
+        self, hypothesis: Union[IndependentState, CollaborativeState]
+    ) -> None:
+        """
+        Add a generated hypothesis to the collection.
+
+        Parameters
+        ----------
+        hypothesis : Union[IndependentState, CollaborativeState]
+            The hypothesis state to add
+        """
+        self._state.generated_hypotheses.append(hypothesis)
+
+    @_maybe_save(n=1)
+    def add_reviewed_hypothesis(self, reviewed_hypothesis: ReviewedHypothesis) -> None:
+        """
+        Add a reviewed hypothesis result to the collection.
+
+        Parameters
+        ----------
+        reviewed_hypothesis : ReviewedHypothesis
+            The reviewed hypothesis state to add
+        """
+        self._state.reviewed_hypotheses.append(reviewed_hypothesis)
+
+    @_maybe_save(n=1)
+    def add_evolved_hypothesis(
+        self, evolved_hypothesis: Union[EvolveFromFeedbackState, OutOfTheBoxState]
+    ) -> None:
+        """
+        Add an evolved hypothesis to the collection.
+
+        Parameters
+        ----------
+        evolved_hypothesis : Union[EvolveFromFeedbackState, OutOfTheBoxState]
+            The evolved hypothesis state to add
+        """
+        self._state.evolved_hypotheses.append(evolved_hypothesis)
+
+    @_maybe_save(n=1)
+    def update_literature_review(
+        self, literature_review: LiteratureReviewState
+    ) -> None:
+        """
+        Update the literature review state.
+
+        Parameters
+        ----------
+        literature_review : LiteratureReviewState
+            The new literature review state
+        """
+        self._state.literature_review = literature_review
+
+    @_maybe_save(n=1)
+    def update_meta_review(self, meta_review: MetaReviewTournamentState) -> None:
+        """
+        Update the meta-review state.
+
+        Parameters
+        ----------
+        meta_review : MetaReviewTournamentState
+            The new meta-review state
+        """
+        self._state.meta_review = meta_review
+
+    @_maybe_save(n=3)
     def advance_hypothesis(self, kind: Literal["generated", "evolved"]) -> None:
         """
         Move a hypothesis from generation/evolution to the reflection queue.
@@ -302,33 +337,30 @@ class CoscientistStateManager:
             If kind is not "generated" or "evolved"
         """
         if kind == "generated":
-            if not self.state.generated_hypotheses:
+            if not self._state.generated_hypotheses:
                 raise IndexError("No generated hypotheses available to advance")
 
-            hypothesis_state = self.state.generated_hypotheses.pop(0)
-            # Extract ParsedHypothesis from IndependentState or CollaborativeState
-            parsed_hypothesis = hypothesis_state["hypothesis"]
+            parsed_hypothesis = self._state.generated_hypotheses.pop(0)
 
         elif kind == "evolved":
-            if not self.state.evolved_hypotheses:
+            if not self._state.evolved_hypotheses:
                 raise IndexError("No evolved hypotheses available to advance")
 
-            hypothesis_state = self.state.evolved_hypotheses.pop(0)
-            # Extract ParsedHypothesis from EvolveFromFeedbackState or OutOfTheBoxState
-            parsed_hypothesis = hypothesis_state["evolved_hypothesis"]
+            parsed_hypothesis = self._state.evolved_hypotheses.pop(0)
 
         else:
             raise ValueError(f"Invalid kind '{kind}'. Must be 'generated' or 'evolved'")
 
         # Add to reflection queue
-        self.reflection_queue.append(parsed_hypothesis)
+        self._state.reflection_queue.append(parsed_hypothesis)
 
         # Add to proximity graph if it exists
         assert (
-            self.state.proximity_graph is not None
+            self._state.proximity_graph is not None
         ), "Proximity graph is not initialized"
-        self.state.proximity_graph.add_hypothesis(parsed_hypothesis)
+        self._state.proximity_graph.add_hypothesis(parsed_hypothesis)
 
+    @_maybe_save(n=1)
     def advance_reviewed_hypothesis(self) -> None:
         """
         Move a hypothesis from reviewed_hypotheses to the EloTournament.
@@ -341,14 +373,47 @@ class CoscientistStateManager:
         IndexError
             If the reviewed_hypotheses list is empty
         """
-        if not self.state.reviewed_hypotheses:
+        if not self._state.reviewed_hypotheses:
             raise IndexError("No reviewed hypotheses available to advance")
 
-        reviewed_hypothesis_state = self.state.reviewed_hypotheses.pop(0)
+        reviewed_hypothesis_state = self._state.reviewed_hypotheses.pop(0)
 
         # Add to tournament
-        assert self.state.tournament is not None, "Tournament is not initialized"
-        self.state.tournament.add_hypothesis(reviewed_hypothesis_state)
+        assert self._state.tournament is not None, "Tournament is not initialized"
+        self._state.tournament.add_hypothesis(reviewed_hypothesis_state)
+
+    def advance_all_hypotheses(
+        self, kind: Literal["generated", "evolved", "reviewed"]
+    ) -> None:
+        """
+        Advance all hypotheses of a given kind to the reflection queue.
+
+        Parameters
+        ----------
+        kind : Literal["generated", "evolved", "reviewed"]
+            The type of hypothesis to advance - either "generated", "evolved", or "reviewed"
+        """
+        if kind == "generated":
+            while self._state.generated_hypotheses:
+                self.advance_hypothesis(kind="generated")
+        elif kind == "evolved":
+            while self._state.evolved_hypotheses:
+                self.advance_hypothesis(kind="evolved")
+        elif kind == "reviewed":
+            while self._state.reviewed_hypotheses:
+                self.advance_reviewed_hypothesis()
+        else:
+            raise ValueError(
+                f"Invalid kind '{kind}'. Must be 'generated', 'evolved', or 'reviewed'"
+            )
+
+    @_maybe_save(n=1)
+    def run_tournament(self, llm: BaseChatModel, k_bracket: int = 16) -> None:
+        """
+        Run the tournament.
+        """
+        assert self._state.tournament is not None, "Tournament is not initialized"
+        self._state.tournament.run_tournament(llm=llm, k_bracket=k_bracket)
 
     def _setup(self) -> None:
         """
@@ -357,14 +422,14 @@ class CoscientistStateManager:
         This method ensures that the required objects are created
         and available for use by other components.
         """
-        if self.state.tournament is None:
-            self.state.tournament = EloTournament()
+        if self._state.tournament is None:
+            self._state.tournament = EloTournament(self._state.goal)
 
-        if self.state.proximity_graph is None:
-            self.state.proximity_graph = ProximityGraph()
+        if self._state.proximity_graph is None:
+            self._state.proximity_graph = ProximityGraph()
 
-    def make_literature_review_initial_state(
-        self, max_subtopics: int
+    def next_literature_review_state(
+        self, max_subtopics: int = 5
     ) -> LiteratureReviewState:
         """
         Create an initial state for the literature review agent.
@@ -379,15 +444,24 @@ class CoscientistStateManager:
         LiteratureReviewState
             Initial state with goal and max_subtopics set, empty lists for subtopics and reports
         """
+        if self._state.literature_review is not None:
+            subtopics = self._state.literature_review.get("subtopics", [])
+            subtopic_reports = self._state.literature_review.get("subtopic_reports", [])
+        else:
+            subtopics = []
+            subtopic_reports = []
+
         return LiteratureReviewState(
-            goal=self.state.goal,
+            goal=self._state.goal,
             max_subtopics=max_subtopics,
-            subtopics=[],
-            subtopic_reports=[],
+            subtopics=subtopics,
+            subtopic_reports=subtopic_reports,
         )
 
-    def make_generation_initial_state(
-        self, mode: Literal["independent", "collaborative"]
+    def next_generation_state(
+        self,
+        mode: Literal["independent", "collaborative"],
+        first_agent_name: str | None = None,
     ) -> Union[IndependentState, CollaborativeState]:
         """
         Create an initial state for the generation agent.
@@ -396,6 +470,9 @@ class CoscientistStateManager:
         ----------
         mode : Literal["independent", "collaborative"]
             The type of generation state to create
+        first_agent_name : str | None
+            The name of the first agent in the collaborative mode. If None, the
+            mode must be "independent".
 
         Returns
         -------
@@ -403,32 +480,36 @@ class CoscientistStateManager:
             Initial state with goal and literature_review set, meta_review included if available
         """
         # Get literature review content
-        if self.state.literature_review is None:
+        if self._state.literature_review is None:
             raise ValueError(
                 "Literature review must be completed before generation can begin"
             )
 
         # Join subtopic reports into a single literature review string
         literature_review_content = "\n\n".join(
-            self.state.literature_review["subtopic_reports"]
+            self._state.literature_review["subtopic_reports"]
         )
 
         # Create base state with required fields
         base_state = {
-            "goal": self.state.goal,
+            "goal": self._state.goal,
             "literature_review": literature_review_content,
         }
 
         # Add meta_review if available
-        if self.state.meta_review is not None:
-            base_state["meta_review"] = self.state.meta_review["result"]
+        if self._state.meta_review is not None:
+            base_state["meta_review"] = self._state.meta_review["result"]
 
         if mode == "independent":
             return IndependentState(**base_state)
         elif mode == "collaborative":
             # Add MultiTurnState fields for collaborative mode
             collaborative_state = CollaborativeState(
-                **base_state, transcript=[], turn=0, next_agent="", finished=False
+                **base_state,
+                transcript=[],
+                turn=0,
+                next_agent=first_agent_name,
+                finished=False,
             )
             return collaborative_state
         else:
@@ -436,7 +517,7 @@ class CoscientistStateManager:
                 f"Invalid mode '{mode}'. Must be 'independent' or 'collaborative'"
             )
 
-    def make_reflection_initial_state(self) -> ReflectionState:
+    def next_reflection_state(self) -> ReflectionState:
         """
         Create an initial state for the reflection agent.
 
@@ -453,17 +534,17 @@ class CoscientistStateManager:
         IndexError
             If the reflection queue is empty
         """
-        if not self.reflection_queue:
+        if not self._state.reflection_queue:
             raise IndexError(
                 "No hypotheses available in reflection queue. Please advance a hypothesis first."
             )
 
         # Pop the first hypothesis from the queue
-        hypothesis_to_review = self.reflection_queue.pop(0)
+        hypothesis_to_review = self._state.reflection_queue.pop(0)
 
         return ReflectionState(hypothesis_to_review=hypothesis_to_review)
 
-    def make_evolution_initial_state(
+    def next_evolution_state(
         self,
         mode: Literal["evolve_from_feedback", "out_of_the_box"],
         uid_to_evolve: Optional[str] = None,
@@ -493,7 +574,7 @@ class CoscientistStateManager:
         KeyError
             If uid_to_evolve is not found in tournament hypotheses
         """
-        if self.state.tournament is None:
+        if self._state.tournament is None:
             raise ValueError(
                 "Tournament must be initialized before evolution can begin"
             )
@@ -504,22 +585,22 @@ class CoscientistStateManager:
                     "uid_to_evolve is required for 'evolve_from_feedback' mode"
                 )
 
-            if uid_to_evolve not in self.state.tournament.hypotheses:
+            if uid_to_evolve not in self._state.tournament.hypotheses:
                 raise KeyError(
                     f"Hypothesis with UID '{uid_to_evolve}' not found in tournament"
                 )
 
-            parent_hypothesis = self.state.tournament.hypotheses[uid_to_evolve]
+            parent_hypothesis = self._state.tournament.hypotheses[uid_to_evolve]
 
             # Create base state
             base_state = {
-                "goal": self.state.goal,
+                "goal": self._state.goal,
                 "parent_hypothesis": parent_hypothesis,
             }
 
             # Add meta_review if available
-            if self.state.meta_review is not None:
-                base_state["meta_review"] = self.state.meta_review["result"]
+            if self._state.meta_review is not None:
+                base_state["meta_review"] = self._state.meta_review["result"]
             else:
                 base_state["meta_review"] = "Not Available"
 
@@ -530,7 +611,7 @@ class CoscientistStateManager:
                 raise ValueError("top_k is required for 'out_of_the_box' mode")
 
             # Get sorted hypotheses and select top k
-            sorted_hypotheses = self.state.tournament.get_sorted_hypotheses()
+            sorted_hypotheses = self._state.tournament.get_sorted_hypotheses()
             if len(sorted_hypotheses) < top_k:
                 raise ValueError(
                     f"Not enough hypotheses in tournament. Requested {top_k}, but only {len(sorted_hypotheses)} available"
@@ -539,17 +620,19 @@ class CoscientistStateManager:
             # Get the top k hypotheses
             top_hypothesis_uids = [uid for uid, rating in sorted_hypotheses[:top_k]]
             top_hypotheses = [
-                self.state.tournament.hypotheses[uid] for uid in top_hypothesis_uids
+                self._state.tournament.hypotheses[uid] for uid in top_hypothesis_uids
             ]
 
-            return OutOfTheBoxState(goal=self.state.goal, top_hypotheses=top_hypotheses)
+            return OutOfTheBoxState(
+                goal=self._state.goal, top_hypotheses=top_hypotheses
+            )
 
         else:
             raise ValueError(
                 f"Invalid mode '{mode}'. Must be 'evolve_from_feedback' or 'out_of_the_box'"
             )
 
-    def make_meta_review_initial_state(self, top_k: int) -> MetaReviewTournamentState:
+    def next_meta_review_state(self, top_k: int) -> MetaReviewTournamentState:
         """
         Create an initial state for the meta-review agent.
 
@@ -568,14 +651,13 @@ class CoscientistStateManager:
         ValueError
             If tournament is not initialized
         """
-        if self.state.tournament is None:
+        if self._state.tournament is None:
             raise ValueError(
                 "Tournament must be initialized before meta-review can begin"
             )
 
         return MetaReviewTournamentState(
-            goal=self.state.goal,
-            tournament=self.state.tournament,
+            goal=self._state.goal,
+            tournament=self._state.tournament,
             top_k=top_k,
-            result="",
         )
