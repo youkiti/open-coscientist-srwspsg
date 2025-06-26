@@ -231,6 +231,67 @@ class CoscientistStateManager:
         """
         return self._state.literature_review is not None
 
+    def get_tournament_hypotheses_for_evolution(self) -> List[str]:
+        """
+        Get the ranked tournament hypotheses that are qualified for evolution.
+        """
+        # This gets us all the hypotheses in the tournament ordered
+        # by rank. Some of them may not have competed yet though.
+        ranked_order = self._state.tournament.get_sorted_hypotheses()
+        # The records dictionary tells us which hypotheses have competed
+        # already and are therefore qualified for evolution.
+        have_competed = self._state.tournament.get_win_loss_records().keys()
+
+        return [h_id for h_id, _ in ranked_order if h_id in have_competed]
+
+    def get_hypothesis_by_uid(
+        self,
+        uid: str,
+        location: Literal[
+            "tournament", "generated", "reviewed", "evolved", "reflection_queue"
+        ],
+    ) -> ParsedHypothesis | ReviewedHypothesis:
+        """
+        Get a hypothesis by its UID. Must specify the location of the hypothesis.
+        This prevents us from accidentally using a hypothesis that isn't at the right
+        stage of development for a task.
+        """
+        if location == "tournament":
+            return self._state.tournament.hypotheses[uid]
+        elif location == "generated":
+            for hypothesis in self._state.generated_hypotheses:
+                if hypothesis.uid == uid:
+                    return hypothesis
+            raise ValueError(
+                f"Hypothesis with UID '{uid}' not found in generated hypotheses"
+            )
+        elif location == "reviewed":
+            for hypothesis in self._state.reviewed_hypotheses:
+                if hypothesis.uid == uid:
+                    return hypothesis
+            raise ValueError(
+                f"Hypothesis with UID '{uid}' not found in reviewed hypotheses"
+            )
+        elif location == "evolved":
+            for hypothesis in self._state.evolved_hypotheses:
+                if hypothesis.uid == uid:
+                    return hypothesis
+            raise ValueError(
+                f"Hypothesis with UID '{uid}' not found in evolved hypotheses"
+            )
+        elif location == "reflection_queue":
+            for hypothesis in self._state.reflection_queue:
+                if hypothesis.uid == uid:
+                    return hypothesis
+            raise ValueError(
+                f"Hypothesis with UID '{uid}' not found in reflection queue"
+            )
+        else:
+            raise ValueError(
+                f"Invalid location '{location}'. Must be 'tournament', 'generated', "
+                "'reviewed', 'evolved', or 'reflection_queue'"
+            )
+
     @property
     def total_hypotheses(self) -> int:
         """
@@ -377,6 +438,8 @@ class CoscientistStateManager:
             raise IndexError("No reviewed hypotheses available to advance")
 
         reviewed_hypothesis_state = self._state.reviewed_hypotheses.pop(0)
+        if not reviewed_hypothesis_state["passed_initial_filter"]:
+            return
 
         # Add to tournament
         assert self._state.tournament is not None, "Tournament is not initialized"
@@ -618,13 +681,16 @@ class CoscientistStateManager:
                 )
 
             # Get the top k hypotheses
-            top_hypothesis_uids = [uid for uid, rating in sorted_hypotheses[:top_k]]
-            top_hypotheses = [
-                self._state.tournament.hypotheses[uid] for uid in top_hypothesis_uids
-            ]
+            elo_ratings = []
+            top_hypotheses = []
+            for uid, rating in sorted_hypotheses[:top_k]:
+                top_hypotheses.append(self._state.tournament.hypotheses[uid])
+                elo_ratings.append(rating)
 
             return OutOfTheBoxState(
-                goal=self._state.goal, top_hypotheses=top_hypotheses
+                goal=self._state.goal,
+                top_hypotheses=top_hypotheses,
+                elo_ratings=elo_ratings,
             )
 
         else:

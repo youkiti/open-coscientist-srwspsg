@@ -45,6 +45,7 @@ class OutOfTheBoxState(TypedDict):
 
     goal: str
     top_hypotheses: List[ReviewedHypothesis]
+    elo_ratings: List[float]
     evolved_hypothesis: ParsedHypothesis
 
 
@@ -112,8 +113,8 @@ def _out_of_the_box_node(
     # Convert list of hypotheses to formatted string
     hypotheses_text = "\n".join(
         [
-            f"- {hyp.hypothesis} (Elo rating: {hyp.elo_rating})"
-            for hyp in state["top_hypotheses"]
+            f"- {hyp.hypothesis} (Elo rating: {elo_rating})"
+            for hyp, elo_rating in zip(state["top_hypotheses"], state["elo_ratings"])
         ]
     )
 
@@ -123,7 +124,8 @@ def _out_of_the_box_node(
         hypotheses=hypotheses_text,
     )
     response_content = llm.invoke(prompt).content
-    return {**state, "evolution_response": response_content}
+    parsed_hypothesis = parse_hypothesis_markdown(response_content)
+    return {**state, "evolved_hypothesis": parsed_hypothesis}
 
 
 def _build_evolve_from_feedback_agent(llm: BaseChatModel) -> StateGraph:

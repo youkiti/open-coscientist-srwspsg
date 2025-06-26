@@ -4,6 +4,7 @@ setups the agents, and organizes the multi-agent system. The framework will be c
 by a supervisor agent.
 """
 
+import logging
 import math
 import random
 from typing import Dict, List
@@ -15,6 +16,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+from coscientist.evolution_agent import build_evolution_agent
 from coscientist.generation_agent import (
     CollaborativeConfig,
     IndependentConfig,
@@ -163,15 +165,51 @@ class CoscientistFramework:
         """
         return list(ReasoningType.__members__.keys())
 
-    def generate_new_hypothesis(
-        self,
-        mode: str,
-        config: IndependentConfig | CollaborativeConfig,
-        first_agent_name: str | None = None,
-    ) -> None:
+    def generate_new_hypothesis(self) -> None:
         """
         Run the hypothesis generation for a given mode and config.
         """
+        # Randomly pick a mode, a reasoning type, and a specialist field.
+        mode = random.choice(self.list_generation_modes())
+        if mode == "independent":
+            llm_name = random.choice(self.list_generation_llm_names())
+            reasoning_type = random.choice(self.list_reasoning_types())
+            specialist_field = random.choice(self.list_specialist_fields())
+            config = IndependentConfig(
+                llm=self.config.generation_agent_llms[llm_name],
+                reasoning_type=getattr(ReasoningType, reasoning_type),
+                field=specialist_field,
+            )
+            first_agent_name = None
+        elif mode == "collaborative":
+            llm_names = np.random.choice(self.list_generation_llm_names(), 2).tolist()
+            specialist_fields = np.random.choice(
+                self.list_specialist_fields(), 2
+            ).tolist()
+            reasoning_types = np.random.choice(self.list_reasoning_types(), 2).tolist()
+
+            agent_names = [
+                f"{llm_name}_{field}"
+                for llm_name, field in zip(llm_names, specialist_fields)
+            ]
+            config = CollaborativeConfig(
+                agent_names=agent_names,
+                agent_fields={
+                    name: field for name, field in zip(agent_names, specialist_fields)
+                },
+                agent_reasoning_types={
+                    name: getattr(ReasoningType, reasoning_type)
+                    for name, reasoning_type in zip(agent_names, reasoning_types)
+                },
+                llms={
+                    name: self.config.generation_agent_llms[llm_name]
+                    for name, llm_name in zip(agent_names, llm_names)
+                },
+                max_turns=10,
+            )
+            first_agent_name = agent_names[0]
+
+        # TODO: Make this async
         generation_agent = build_generation_agent(mode, config)
         initial_generation_state = self.state_manager.next_generation_state(
             mode, first_agent_name
@@ -208,51 +246,7 @@ class CoscientistFramework:
 
         # TODO: Make this async
         for _ in range(max(0, n_hypotheses - self.state_manager.total_hypotheses)):
-            # Randomly pick a mode, a reasoning type, and a specialist field.
-            # mode = random.choice(self.list_generation_modes())
-            mode = "collaborative"
-            if mode == "independent":
-                llm_name = random.choice(self.list_generation_llm_names())
-                reasoning_type = random.choice(self.list_reasoning_types())
-                specialist_field = random.choice(self.list_specialist_fields())
-                config = IndependentConfig(
-                    llm=self.config.generation_agent_llms[llm_name],
-                    reasoning_type=getattr(ReasoningType, reasoning_type),
-                    field=specialist_field,
-                )
-            elif mode == "collaborative":
-                llm_names = np.random.choice(
-                    self.list_generation_llm_names(), 2
-                ).tolist()
-                specialist_fields = np.random.choice(
-                    self.list_specialist_fields(), 2
-                ).tolist()
-                reasoning_types = np.random.choice(
-                    self.list_reasoning_types(), 2
-                ).tolist()
-
-                agent_names = [
-                    f"{llm_name}_{field}"
-                    for llm_name, field in zip(llm_names, specialist_fields)
-                ]
-                config = CollaborativeConfig(
-                    agent_names=agent_names,
-                    agent_fields={
-                        name: field
-                        for name, field in zip(agent_names, specialist_fields)
-                    },
-                    agent_reasoning_types={
-                        name: getattr(ReasoningType, reasoning_type)
-                        for name, reasoning_type in zip(agent_names, reasoning_types)
-                    },
-                    llms={
-                        name: self.config.generation_agent_llms[llm_name]
-                        for name, llm_name in zip(agent_names, llm_names)
-                    },
-                    max_turns=10,
-                )
-            # Make a new hypothesis and immediately advance it to be reviewed.
-            self.generate_new_hypothesis(mode, config, first_agent_name=agent_names[0])
+            self.generate_new_hypothesis()
 
         # Move generated hypotheses to the reflection queue
         self.state_manager.advance_all_hypotheses(kind="generated")
@@ -261,9 +255,6 @@ class CoscientistFramework:
         while not self.state_manager.reflection_queue_is_empty:
             # This pops from the reflection queue until it's empty
             initial_reflection_state = self.state_manager.next_reflection_state()
-            print(
-                f"Reflecting on hypothesis {initial_reflection_state["hypothesis_to_review"].hypothesis}"
-            )
             llm_name = random.choice(self.list_reflection_llm_names())
             reflection_agent = build_deep_verification_agent(
                 llm=self.config.reflection_agent_llms[llm_name],
@@ -295,9 +286,106 @@ class CoscientistFramework:
         )
         meta_review_agent = build_meta_review_agent(self.config.meta_review_agent_llm)
         final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
-        self.state_manager.update_meta_review(final_meta_review_state["result"])
+        self.state_manager.update_meta_review(final_meta_review_state)
 
         return
 
-    def step(self):
-        pass
+    async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
+        """
+        Takes the top (n_hypotheses // 2) hypotheses and evolves them. Also
+        randomly selects (n_hypotheses // 2) hypotheses to evolve.
+        """
+        assert n_hypotheses >= 2, "Must evolve at least two hypotheses"
+        assert self.state_manager.is_started, "Coscientist system must be started first"
+        evolution_candidate_uids = (
+            self.state_manager.get_tournament_hypotheses_for_evolution()
+        )
+        if len(evolution_candidate_uids) < n_hypotheses:
+            logging.warning(
+                f"Only {len(evolution_candidate_uids)} hypotheses are qualified for evolution. "
+                f"Evolving {len(evolution_candidate_uids)} hypotheses."
+            )
+            n_hypotheses = len(evolution_candidate_uids)
+
+        # The first uids are the top ranked hypotheses
+        top_ranked_uids = evolution_candidate_uids[: (n_hypotheses // 2)]
+        # The rest are randomly selected
+        random_uids = np.random.choice(
+            evolution_candidate_uids[(n_hypotheses // 2) :],
+            size=n_hypotheses // 2,
+            replace=False,
+        ).tolist()
+
+        # Evolve the top ranked and random hypotheses based on feedback
+        for uid in top_ranked_uids + random_uids:
+            initial_evolution_state = self.state_manager.next_evolution_state(
+                mode="evolve_from_feedback", uid_to_evolve=uid
+            )
+            llm_name = random.choice(self.list_evolution_llm_names())
+            evolution_agent = build_evolution_agent(
+                mode="evolve_from_feedback",
+                llm=self.config.evolution_agent_llms[llm_name],
+            )
+            final_evolution_state = evolution_agent.invoke(initial_evolution_state)
+            self.state_manager.add_evolved_hypothesis(
+                final_evolution_state["evolved_hypothesis"]
+            )
+
+        # Run one round instance of evolving the top ranked hypotheses
+        # into something new
+        out_of_box_initial_state = self.state_manager.next_evolution_state(
+            mode="out_of_the_box",
+            top_k=n_hypotheses // 2,
+        )
+        llm_name = random.choice(self.list_evolution_llm_names())
+        evolution_agent = build_evolution_agent(
+            mode="out_of_the_box", llm=self.config.evolution_agent_llms[llm_name]
+        )
+        out_of_box_state = evolution_agent.invoke(out_of_box_initial_state)
+        self.state_manager.add_evolved_hypothesis(
+            out_of_box_state["evolved_hypothesis"]
+        )
+
+        # Move the evolved hypotheses to the reflection queue
+        self.state_manager.advance_all_hypotheses(kind="evolved")
+
+        # Now run through the review queue and perform deep verification
+        # TODO: Do we have to worry about reflecting on hypotheses that are
+        # already in the reflection queue but weren't advanced yet?
+        # Do we always want to run reflection immediately after a hypothesis
+        # is generated?
+        while not self.state_manager.reflection_queue_is_empty:
+            # This pops from the reflection queue until it's empty
+            initial_reflection_state = self.state_manager.next_reflection_state()
+            llm_name = random.choice(self.list_reflection_llm_names())
+            reflection_agent = build_deep_verification_agent(
+                llm=self.config.reflection_agent_llms[llm_name],
+                review_llm=self.config.meta_review_agent_llm,
+                parallel=False,
+                checkpointer=None,
+            )
+            final_reflection_state = reflection_agent.invoke(initial_reflection_state)
+            self.state_manager.add_reviewed_hypothesis(
+                final_reflection_state["reviewed_hypothesis"]
+            )
+
+        # Move the reviewed hypothesis to the EloTournament.
+        self.state_manager.advance_all_hypotheses(kind="reviewed")
+
+        return
+
+    def expand_literature_review(self):
+        return
+
+    def run_tournament(self, k_bracket: int = 4) -> None:
+        self.state_manager.run_tournament(
+            llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
+        )
+
+    def run_meta_review(self, k_bracket: int = 4) -> None:
+        initial_meta_review_state = self.state_manager.next_meta_review_state(
+            top_k=k_bracket
+        )
+        meta_review_agent = build_meta_review_agent(self.config.meta_review_agent_llm)
+        final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
+        self.state_manager.update_meta_review(final_meta_review_state)
