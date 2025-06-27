@@ -1,10 +1,12 @@
+import hashlib
 import os
 import pickle
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Tuple, Union
 
 from langchain_core.language_models import BaseChatModel
 
@@ -89,6 +91,116 @@ class CoscientistState:
         self.reflection_queue = []
         self._iteration = 0
 
+        # Create goal-specific output directory
+        goal_hash = self._hash_goal(goal)
+        self._output_dir = os.path.join(_OUTPUT_DIR, goal_hash)
+
+        # Check if directory already exists
+        if os.path.exists(self._output_dir):
+            raise FileExistsError(
+                f"Directory for goal already exists: {self._output_dir}\n"
+                f"Please use CoscientistState.load_latest(goal='{goal}') to resume, "
+                f"or call CoscientistState.clear_goal_directory('{goal}') to start fresh."
+            )
+
+        # Create the directory
+        Path(self._output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Store goal metadata for discoverability
+        goal_file = os.path.join(self._output_dir, "goal.txt")
+        with open(goal_file, "w", encoding="utf-8") as f:
+            f.write(goal)
+
+    @staticmethod
+    def _normalize_goal(goal: str) -> str:
+        """
+        Normalize the goal string for consistent hashing.
+
+        Parameters
+        ----------
+        goal : str
+            The research goal string
+
+        Returns
+        -------
+        str
+            Normalized goal string (stripped and lowercased)
+        """
+        return goal.strip().lower()
+
+    @staticmethod
+    def _hash_goal(goal: str) -> str:
+        """
+        Generate a hash string from the goal for directory naming.
+
+        Parameters
+        ----------
+        goal : str
+            The research goal string
+
+        Returns
+        -------
+        str
+            First 12 characters of SHA256 hash of the normalized goal
+        """
+        normalized_goal = CoscientistState._normalize_goal(goal)
+        return hashlib.sha256(normalized_goal.encode("utf-8")).hexdigest()[:12]
+
+    @classmethod
+    def list_all_goals(cls) -> List[Tuple[str, str]]:
+        """
+        List all research goals with their corresponding hash directories.
+
+        Returns
+        -------
+        List[tuple[str, str]]
+            List of (original_goal, hash_directory) tuples for all existing goal directories
+        """
+        if not os.path.exists(_OUTPUT_DIR):
+            return []
+
+        goals = []
+        for item in os.listdir(_OUTPUT_DIR):
+            item_path = os.path.join(_OUTPUT_DIR, item)
+            if os.path.isdir(item_path):
+                goal_file = os.path.join(item_path, "goal.txt")
+                if os.path.exists(goal_file):
+                    try:
+                        with open(goal_file, "r", encoding="utf-8") as f:
+                            original_goal = f.read().strip()
+                        goals.append((original_goal, item))
+                    except (IOError, UnicodeDecodeError):
+                        # Skip directories with unreadable goal files
+                        continue
+
+        # Sort by goal string for consistent ordering
+        goals.sort(key=lambda x: x[0])
+        return goals
+
+    @classmethod
+    def clear_goal_directory(cls, goal: str) -> str:
+        """
+        Clear the directory for a specific goal.
+
+        Parameters
+        ----------
+        goal : str
+            The research goal whose directory should be cleared
+
+        Returns
+        -------
+        str
+            Confirmation message with the path that was cleared
+        """
+        goal_hash = cls._hash_goal(goal)
+        goal_dir = os.path.join(_OUTPUT_DIR, goal_hash)
+
+        if os.path.exists(goal_dir):
+            shutil.rmtree(goal_dir)
+            return f"Successfully cleared directory: {goal_dir}"
+        else:
+            return f"Directory does not exist: {goal_dir}"
+
     # Persistence methods
     def save(self) -> str:
         """
@@ -99,15 +211,10 @@ class CoscientistState:
         str
             Path to the saved checkpoint file
         """
-        directory = _OUTPUT_DIR
-
-        # Create directory if it doesn't exist
-        Path(directory).mkdir(parents=True, exist_ok=True)
-
         # Generate filename with datetime and iteration
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"coscientist_state_{timestamp}_iter_{self._iteration:04d}.pkl"
-        filepath = os.path.join(directory, filename)
+        filepath = os.path.join(self._output_dir, filename)
 
         # Save state to pickle file
         with open(filepath, "wb") as f:
@@ -137,31 +244,48 @@ class CoscientistState:
             return pickle.load(f)
 
     @staticmethod
-    def list_checkpoints(directory: Optional[str] = None) -> List[str]:
+    def list_checkpoints(
+        directory: Optional[str] = None, goal: Optional[str] = None
+    ) -> List[str]:
         """
         List all available checkpoint files in the directory.
 
         Parameters
         ----------
         directory : Optional[str]
-            Directory to search for checkpoints. Defaults to ~/.coscientist
+            Directory to search for checkpoints. Cannot be used with goal parameter.
+        goal : Optional[str]
+            Research goal to search checkpoints for. Cannot be used with directory parameter.
 
         Returns
         -------
         List[str]
             List of checkpoint filepaths, sorted by modification time (newest first)
-        """
-        if directory is None:
-            directory = _OUTPUT_DIR
 
-        if not os.path.exists(directory):
+        Raises
+        ------
+        ValueError
+            If both directory and goal are provided, or if neither is provided
+        """
+        if directory is not None and goal is not None:
+            raise ValueError("Cannot specify both directory and goal parameters")
+        if directory is None and goal is None:
+            raise ValueError("Must specify either directory or goal parameter")
+
+        if goal is not None:
+            goal_hash = CoscientistState._hash_goal(goal)
+            search_directory = os.path.join(_OUTPUT_DIR, goal_hash)
+        else:
+            search_directory = directory
+
+        if not os.path.exists(search_directory):
             return []
 
         # Find all pickle files matching our naming pattern
         checkpoint_files = []
-        for filename in os.listdir(directory):
+        for filename in os.listdir(search_directory):
             if filename.startswith("coscientist_state_") and filename.endswith(".pkl"):
-                filepath = os.path.join(directory, filename)
+                filepath = os.path.join(search_directory, filename)
                 checkpoint_files.append(filepath)
 
         # Sort by modification time (newest first)
@@ -171,7 +295,7 @@ class CoscientistState:
 
     @classmethod
     def load_latest(
-        cls, directory: Optional[str] = None
+        cls, directory: Optional[str] = None, goal: Optional[str] = None
     ) -> Optional["CoscientistState"]:
         """
         Load the most recent checkpoint from the directory.
@@ -179,14 +303,21 @@ class CoscientistState:
         Parameters
         ----------
         directory : Optional[str]
-            Directory to search for checkpoints. Defaults to ~/.coscientist
+            Directory to search for checkpoints. Cannot be used with goal parameter.
+        goal : Optional[str]
+            Research goal to search checkpoints for. Cannot be used with directory parameter.
 
         Returns
         -------
         Optional[CoscientistState]
             The loaded state object, or None if no checkpoints found
+
+        Raises
+        ------
+        ValueError
+            If both directory and goal are provided, or if neither is provided
         """
-        checkpoints = cls.list_checkpoints(directory)
+        checkpoints = cls.list_checkpoints(directory=directory, goal=goal)
         if not checkpoints:
             return None
 
