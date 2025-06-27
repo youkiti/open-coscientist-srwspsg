@@ -165,10 +165,34 @@ class CoscientistFramework:
         """
         return list(ReasoningType.__members__.keys())
 
+    def process_reflection_queue(self) -> None:
+        """
+        Process all hypotheses in the reflection queue through deep verification.
+
+        This method pops hypotheses from the reflection queue until it's empty,
+        runs them through deep verification, and adds the reviewed hypotheses
+        to the state manager.
+        """
+        while not self.state_manager.reflection_queue_is_empty:
+            # This pops from the reflection queue until it's empty
+            initial_reflection_state = self.state_manager.next_reflection_state()
+            llm_name = random.choice(self.list_reflection_llm_names())
+            reflection_agent = build_deep_verification_agent(
+                llm=self.config.reflection_agent_llms[llm_name],
+                review_llm=self.config.meta_review_agent_llm,
+                parallel=False,
+                checkpointer=None,
+            )
+            final_reflection_state = reflection_agent.invoke(initial_reflection_state)
+            self.state_manager.add_reviewed_hypothesis(
+                final_reflection_state["reviewed_hypothesis"]
+            )
+
     def generate_new_hypothesis(self) -> None:
         """
         Run the hypothesis generation for a given mode and config.
         """
+        # TODO: The mode and roles should be selected by the supervisor agent.
         # Randomly pick a mode, a reasoning type, and a specialist field.
         mode = random.choice(self.list_generation_modes())
         if mode == "independent":
@@ -237,7 +261,8 @@ class CoscientistFramework:
                 self.config.literature_review_agent_llm
             )
             initial_lit_review_state = self.state_manager.next_literature_review_state(
-                max_subtopics=2
+                # TODO: Make this configurable
+                max_subtopics=5
             )
             final_lit_review_state = await literature_review_agent.ainvoke(
                 initial_lit_review_state
@@ -252,20 +277,7 @@ class CoscientistFramework:
         self.state_manager.advance_all_hypotheses(kind="generated")
 
         # Now run through the review queue and perform deep verification
-        while not self.state_manager.reflection_queue_is_empty:
-            # This pops from the reflection queue until it's empty
-            initial_reflection_state = self.state_manager.next_reflection_state()
-            llm_name = random.choice(self.list_reflection_llm_names())
-            reflection_agent = build_deep_verification_agent(
-                llm=self.config.reflection_agent_llms[llm_name],
-                review_llm=self.config.meta_review_agent_llm,
-                parallel=False,
-                checkpointer=None,
-            )
-            final_reflection_state = reflection_agent.invoke(initial_reflection_state)
-            self.state_manager.add_reviewed_hypothesis(
-                final_reflection_state["reviewed_hypothesis"]
-            )
+        self.process_reflection_queue()
 
         # Move the reviewed hypothesis to the EloTournament.
         self.state_manager.advance_all_hypotheses(kind="reviewed")
@@ -276,19 +288,8 @@ class CoscientistFramework:
         k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
         # TODO: Figure out the right LLM for this job; should it be different from meta-review?
         # Feels like it should be fixed for the sake of consistency though
-        self.state_manager.run_tournament(
-            llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
-        )
-
-        # Now run meta-review on the tournament results
-        initial_meta_review_state = self.state_manager.next_meta_review_state(
-            top_k=k_bracket
-        )
-        meta_review_agent = build_meta_review_agent(self.config.meta_review_agent_llm)
-        final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
-        self.state_manager.update_meta_review(final_meta_review_state)
-
-        return
+        self.run_tournament(llm=self.config.meta_review_agent_llm, k_bracket=k_bracket)
+        self.run_meta_review(k_bracket=k_bracket)
 
     async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
         """
@@ -349,33 +350,17 @@ class CoscientistFramework:
         # Move the evolved hypotheses to the reflection queue
         self.state_manager.advance_all_hypotheses(kind="evolved")
 
-        # Now run through the review queue and perform deep verification
         # TODO: Do we have to worry about reflecting on hypotheses that are
         # already in the reflection queue but weren't advanced yet?
         # Do we always want to run reflection immediately after a hypothesis
         # is generated?
-        while not self.state_manager.reflection_queue_is_empty:
-            # This pops from the reflection queue until it's empty
-            initial_reflection_state = self.state_manager.next_reflection_state()
-            llm_name = random.choice(self.list_reflection_llm_names())
-            reflection_agent = build_deep_verification_agent(
-                llm=self.config.reflection_agent_llms[llm_name],
-                review_llm=self.config.meta_review_agent_llm,
-                parallel=False,
-                checkpointer=None,
-            )
-            final_reflection_state = reflection_agent.invoke(initial_reflection_state)
-            self.state_manager.add_reviewed_hypothesis(
-                final_reflection_state["reviewed_hypothesis"]
-            )
+        self.process_reflection_queue()
 
         # Move the reviewed hypothesis to the EloTournament.
         self.state_manager.advance_all_hypotheses(kind="reviewed")
 
-        return
-
-    def expand_literature_review(self):
-        return
+    def expand_literature_review(self) -> None:
+        raise NotImplementedError("Expanding literature review is not implemented yet")
 
     def run_tournament(self, k_bracket: int = 4) -> None:
         self.state_manager.run_tournament(

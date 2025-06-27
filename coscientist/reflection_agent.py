@@ -466,6 +466,5 @@ def _sequential_assumption_research_node(
         # Run research for this assumption
         result = asyncio.run(_write_assumption_research_report(query))
         assumption_research_results[assumption] = result
-        break
 
     return {"_assumption_research_results": assumption_research_results}

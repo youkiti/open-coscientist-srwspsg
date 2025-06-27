@@ -215,6 +215,12 @@ class CoscientistStateManager:
         self._state = state
         self._setup()
 
+    # State field properties
+    @property
+    def goal(self) -> str:
+        """The research goal."""
+        return self._state.goal
+
     @property
     def is_started(self) -> bool:
         """
