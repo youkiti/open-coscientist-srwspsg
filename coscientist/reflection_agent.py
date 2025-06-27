@@ -32,6 +32,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
+from coscientist.custom_types import ParsedHypothesis, ReviewedHypothesis
 
 
 class ReflectionState(TypedDict):
@@ -40,32 +41,32 @@ class ReflectionState(TypedDict):
 
     Parameters
     ----------
-    hypothesis: str
-        The hypothesis being evaluated
+    hypothesis_to_review: ParsedHypothesis
+        The parsed hypothesis being evaluated
     passed_initial_filter: bool
         Whether the hypothesis passed the initial desk rejection filter
-    verification_result: str
-        The result of the deep verification process
-    simulation_result: str
-        The result of the hypothesis simulation process
-    causal_reasoning: str
-        The causal trace from hypothesis simulation
-    parsed_assumptions: Dict[str, List[str]]
-        Dictionary of parsed assumptions and sub-assumptions
-    assumption_research_results: Dict[str, str]
-        Research results for each assumption
+    initial_filter_assessment: str
+        The assessment from the desk rejection filter
+    _causal_reasoning: str
+        The causal trace from hypothesis simulation (private)
+    _refined_assumptions: str
+        The refined assumptions output (private)
+    _parsed_assumptions: Dict[str, List[str]]
+        Dictionary of parsed assumptions and sub-assumptions (private)
+    _assumption_research_results: Dict[str, str]
+        Research results for each assumption (private)
+    reviewed_hypothesis: Optional[ReviewedHypothesis]
+        The final reviewed hypothesis with all verification results
     """
 
-    hypothesis: str
-    reasoning: str
-    assumptions: str
+    hypothesis_to_review: ParsedHypothesis
     initial_filter_assessment: str
     passed_initial_filter: bool
-    verification_result: str
-    causal_reasoning: str
-    refined_assumptions: str
-    parsed_assumptions: Dict[str, List[str]]
-    assumption_research_results: Dict[str, str]
+    _causal_reasoning: str
+    _refined_assumptions: str
+    _parsed_assumptions: Dict[str, List[str]]
+    _assumption_research_results: Dict[str, str]
+    reviewed_hypothesis: Optional[ReviewedHypothesis]
 
 
 def parse_assumption_decomposition(markdown_text: str) -> Dict[str, List[str]]:
@@ -135,7 +136,9 @@ def desk_reject_node(state: ReflectionState, llm: BaseChatModel) -> ReflectionSt
     ReflectionState
         Updated state with the passed_initial_filter field updated
     """
-    prompt = load_prompt("desk_reject", hypothesis=state["hypothesis"])
+    prompt = load_prompt(
+        "desk_reject", hypothesis=state["hypothesis_to_review"].hypothesis
+    )
     response = llm.invoke(prompt)
     passed = "pass" in response.content.split("FINAL EVALUATION:")[-1].lower()
 
@@ -161,12 +164,14 @@ def hypothesis_simulation_node(
     Returns
     -------
     ReflectionState
-        Updated state with the simulation_result field populated
+        Updated state with the _causal_reasoning field populated
     """
-    prompt = load_prompt("cause_and_effect", hypothesis=state["hypothesis"])
+    prompt = load_prompt(
+        "cause_and_effect", hypothesis=state["hypothesis_to_review"].hypothesis
+    )
     response = llm.invoke(prompt)
 
-    return {"causal_reasoning": response.content}
+    return {"_causal_reasoning": response.content}
 
 
 def assumption_decomposer_node(
@@ -185,12 +190,12 @@ def assumption_decomposer_node(
     Returns
     -------
     ReflectionState
-        Updated state with the parsed_assumptions field populated
+        Updated state with the _parsed_assumptions field populated
     """
     prompt = load_prompt(
         "assumption_decomposer",
-        hypothesis=state["hypothesis"],
-        assumptions=state.get("assumptions", ""),
+        hypothesis=state["hypothesis_to_review"].hypothesis,
+        assumptions="\n".join(state["hypothesis_to_review"].assumptions),
     )
     response = llm.invoke(prompt)
 
@@ -198,8 +203,8 @@ def assumption_decomposer_node(
     parsed_assumptions = parse_assumption_decomposition(response.content)
 
     return {
-        "refined_assumptions": response.content,
-        "parsed_assumptions": parsed_assumptions,
+        "_refined_assumptions": response.content,
+        "_parsed_assumptions": parsed_assumptions,
     }
 
 
@@ -219,31 +224,45 @@ def deep_verification_node(
     Returns
     -------
     ReflectionState
-        Updated state with the verification_result field populated
+        Updated state with the reviewed_hypothesis populated
     """
     # Debug: Check what keys are actually in the state
     available_keys = list(state.keys())
 
     # More informative assertions
     assert (
-        "assumption_research_results" in state
-    ), f"Missing 'assumption_research_results'. Available keys: {available_keys}"
+        "_assumption_research_results" in state
+    ), f"Missing '_assumption_research_results'. Available keys: {available_keys}"
     assert (
-        "causal_reasoning" in state
-    ), f"Missing 'causal_reasoning'. Available keys: {available_keys}"
+        "_causal_reasoning" in state
+    ), f"Missing '_causal_reasoning'. Available keys: {available_keys}"
 
     # Combine assumption research results into a single string
-    assumption_research = "\n\n".join(state["assumption_research_results"].values())
+    assumption_research = "\n\n".join(state["_assumption_research_results"].values())
 
     prompt = load_prompt(
         "deep_verification",
-        hypothesis=state["hypothesis"],
-        reasoning=state["causal_reasoning"],
+        hypothesis=state["hypothesis_to_review"].hypothesis,
+        reasoning=state["_causal_reasoning"],
         assumption_research=assumption_research,
     )
     response = llm.invoke(prompt)
 
-    return {"verification_result": response.content}
+    # Create a ReviewedHypothesis instance
+    reviewed_hypothesis = ReviewedHypothesis(
+        uid=state["hypothesis_to_review"].uid,
+        hypothesis=state["hypothesis_to_review"].hypothesis,
+        predictions=state["hypothesis_to_review"].predictions,
+        assumptions=state["hypothesis_to_review"].assumptions,
+        parent_uid=state["hypothesis_to_review"].parent_uid,
+        causal_reasoning=state["_causal_reasoning"],
+        assumption_research_results=state["_assumption_research_results"],
+        verification_result=response.content,
+    )
+
+    return {
+        "reviewed_hypothesis": reviewed_hypothesis,
+    }
 
 
 def build_deep_verification_agent(
@@ -375,7 +394,7 @@ async def _write_assumption_research_report(assumption_evaluation_query: str) ->
         query=assumption_evaluation_query,
         report_type="research_report",
         report_format="markdown",
-        verbose=True,
+        verbose=False,
         tone=Tone.Objective,
         config_path=os.path.join(os.path.dirname(__file__), "researcher_config.json"),
     )
@@ -391,7 +410,7 @@ def _parallel_assumption_research_node(
     """
     Node that conducts parallel research for all assumptions and sub-assumptions using GPTResearcher.
     """
-    parsed_assumptions = state["parsed_assumptions"]
+    parsed_assumptions = state["_parsed_assumptions"]
 
     async def _conduct_research():
         # Create research tasks for all assumption/sub-assumption pairs
@@ -422,7 +441,7 @@ def _parallel_assumption_research_node(
     for assumption, result in zip(parsed_assumptions.keys(), research_results):
         assumption_research_results[assumption] = result
 
-    return {"assumption_research_results": assumption_research_results}
+    return {"_assumption_research_results": assumption_research_results}
 
 
 def _sequential_assumption_research_node(
@@ -431,7 +450,7 @@ def _sequential_assumption_research_node(
     """
     Node that conducts sequential research for all assumptions and sub-assumptions using GPTResearcher.
     """
-    parsed_assumptions = state["parsed_assumptions"]
+    parsed_assumptions = state["_parsed_assumptions"]
     assumption_research_results = {}
 
     # Process each assumption sequentially
@@ -445,12 +464,7 @@ def _sequential_assumption_research_node(
             query += f"Sub-assumption {i}: {sub_assumption} "
 
         # Run research for this assumption
-        try:
-            result = asyncio.run(_write_assumption_research_report(query))
-            assumption_research_results[assumption] = result
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to conduct research for assumption '{assumption}': {str(e)}"
-            )
+        result = asyncio.run(_write_assumption_research_report(query))
+        assumption_research_results[assumption] = result
 
-    return {"assumption_research_results": assumption_research_results}
+    return {"_assumption_research_results": assumption_research_results}

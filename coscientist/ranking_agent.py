@@ -23,7 +23,6 @@ import itertools  # Add itertools for combinations
 from typing import Dict, List, Optional, Tuple  # Add Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from tqdm import tqdm
 
 from coscientist import multiturn
 from coscientist.common import load_prompt
@@ -116,12 +115,7 @@ def update_elo(rating1: float, rating2: float, winner: int) -> Tuple[float, floa
 class EloTournament:
     """Manages a two-stage ELO ranking tournament for hypotheses."""
 
-    def __init__(
-        self,
-        llm: BaseChatModel,
-        goal: str,
-    ):
-        self.llm = llm
+    def __init__(self, goal: str):
         self.goal = goal
         self.hypotheses: Dict[str, ReviewedHypothesis] = {}  # id -> Hypothesis object
         self.ratings: Dict[str, float] = {}  # id -> ELO rating
@@ -146,6 +140,7 @@ class EloTournament:
         hypo1: ReviewedHypothesis,
         hypo2: ReviewedHypothesis,
         prompt_name: str,
+        llm: BaseChatModel,
     ) -> Tuple[int, str]:
         """
         Uses the LLM with a specific prompt to determine the winner between two hypotheses.
@@ -177,10 +172,10 @@ class EloTournament:
         # Load and format the prompt
         if prompt_name == "tournament":
             formatted_prompt = load_prompt(prompt_name, **prompt_input)
-            response_text = self.llm.invoke(formatted_prompt).content
+            response_text = llm.invoke(formatted_prompt).content
         elif prompt_name == "simulated_debate":
             agent = _build_debate_agent(
-                agent_names=["scientist"], llms={"scientist": self.llm}, max_turns=10
+                agent_names=["scientist"], llms={"scientist": llm}, max_turns=10
             )
             initial_state = DebateState(
                 transcript=[],
@@ -205,7 +200,7 @@ class EloTournament:
 
         return winner, response_text
 
-    def run_round_robin_stage(self):
+    def run_round_robin_stage(self, llm: BaseChatModel):
         """
         Runs the round-robin stage of the tournament.
         Every hypothesis competes against every other hypothesis once using TOURNAMENT_PROMPT.
@@ -218,7 +213,7 @@ class EloTournament:
             return
 
         # Use itertools.combinations to get unique pairs
-        for id1, id2 in tqdm(list(itertools.combinations(hypo_ids, 2))):
+        for id1, id2 in list(itertools.combinations(hypo_ids, 2)):
             hypo1 = self.hypotheses[id1]
             hypo2 = self.hypotheses[id2]
             rating1 = self.ratings[id1]
@@ -228,7 +223,7 @@ class EloTournament:
             previous_outcome = self.match_history.get(pair, None)
             if previous_outcome is None:
                 # If no history, run the match
-                winner, debate = self._determine_winner(hypo1, hypo2, "tournament")
+                winner, debate = self._determine_winner(hypo1, hypo2, "tournament", llm)
 
                 self.match_history[pair] = RankingMatchResult(
                     uid1=id1, uid2=id2, winner=winner, debate=debate
@@ -238,7 +233,7 @@ class EloTournament:
                 self.ratings[id1] = new_rating1
                 self.ratings[id2] = new_rating2
 
-    def run_bracket_stage(self, k: int = 16) -> Optional[str]:
+    def run_bracket_stage(self, llm: BaseChatModel, k: int = 16) -> Optional[str]:
         """
         Runs the single-elimination bracket stage for the top k hypotheses.
         Uses SIMULATED_DEBATE_PROMPT for matches.
@@ -289,7 +284,7 @@ class EloTournament:
                 if previous_outcome is None:
                     # Pair hasn't played, run the LLM
                     winner, debate = self._determine_winner(
-                        hypo1, hypo2, "simulated_debate"
+                        hypo1, hypo2, "simulated_debate", llm
                     )
 
                     winner_id = id1 if winner == 1 else id2
@@ -299,6 +294,8 @@ class EloTournament:
                     new_rating1, new_rating2 = update_elo(rating1, rating2, winner)
                     self.ratings[id1] = new_rating1
                     self.ratings[id2] = new_rating2
+                else:
+                    winner_id = id1 if previous_outcome.winner == 1 else id2
 
                 next_round_ids.append(winner_id)
 
@@ -308,7 +305,7 @@ class EloTournament:
             current_round_ids = next_round_ids
             round_num += 1
 
-    def run_tournament(self, k_bracket: int = 16) -> Optional[str]:
+    def run_tournament(self, llm: BaseChatModel, k_bracket: int = 16) -> Optional[str]:
         """
         Runs the full two-stage tournament.
 
@@ -322,13 +319,8 @@ class EloTournament:
         Optional[str]
             The ID of the final winning hypothesis from the bracket stage, or None.
         """
-        self.run_round_robin_stage()
-        # Print final ELO rankings after round robin
-        print("\n--- ELO Rankings after Round Robin Stage ---")
-        for i, (h_id, rating) in enumerate(self.get_sorted_hypotheses()):
-            print(f"{i + 1}. {h_id}: {rating:.2f}")
-
-        self.run_bracket_stage(k=k_bracket)
+        self.run_round_robin_stage(llm)
+        self.run_bracket_stage(llm, k=k_bracket)
 
     def get_win_loss_records(self) -> Dict[str, Dict[str, int]]:
         """

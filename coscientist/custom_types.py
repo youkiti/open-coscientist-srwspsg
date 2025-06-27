@@ -18,6 +18,10 @@ class ParsedHypothesis(BaseModel):
     assumptions: List[str] = Field(
         description="A list of assumptions that are implicit or explicit in the hypothesis"
     )
+    parent_uid: str | None = Field(
+        default=None,
+        description="The unique identifier of the parent hypothesis, if applicable",
+    )
 
 
 class ReviewedHypothesis(ParsedHypothesis):

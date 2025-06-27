@@ -66,7 +66,10 @@ def _topic_decomposition_node(
     if not subtopics:
         raise ValueError("Failed to parse any topics from decomposition response")
 
-    return {**state, "subtopics": subtopics, "subtopic_reports": []}
+    if state.get("subtopics", False):
+        subtopics = state["subtopics"] + subtopics
+
+    return {"subtopics": subtopics}
 
 
 async def _write_subtopic_report(subtopic: str, main_goal: str) -> str:
@@ -91,7 +94,7 @@ async def _write_subtopic_report(subtopic: str, main_goal: str) -> str:
         report_type="subtopic_report",
         report_format="markdown",
         parent_query=main_goal,
-        verbose=True,
+        verbose=False,
         tone=Tone.Objective,
         config_path=os.path.join(os.path.dirname(__file__), "researcher_config.json"),
     )
@@ -119,7 +122,10 @@ async def _parallel_research_node(
     except Exception as e:
         raise RuntimeError(f"Failed to conduct research for subtopics: {str(e)}")
 
-    return {**state, "subtopic_reports": subtopic_reports}
+    if state.get("subtopic_reports", False):
+        subtopic_reports = state["subtopic_reports"] + subtopic_reports
+
+    return {"subtopic_reports": subtopic_reports}
 
 
 def build_literature_review_agent(llm: BaseChatModel) -> StateGraph:
