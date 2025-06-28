@@ -18,6 +18,7 @@ from coscientist.meta_review_agent import MetaReviewTournamentState
 from coscientist.proximity_agent import ProximityGraph
 from coscientist.ranking_agent import EloTournament
 from coscientist.reflection_agent import ReflectionState
+from coscientist.supervisor import SupervisorDecisionState
 
 # Global configuration for output directory
 _OUTPUT_DIR = os.environ.get("COSCIENTIST_DIR", os.path.expanduser("~/.coscientist"))
@@ -77,6 +78,14 @@ class CoscientistState:
     meta_review: Optional[MetaReviewTournamentState]
     proximity_graph: Optional[ProximityGraph]
     reflection_queue: List[ParsedHypothesis]
+
+    # Fields need for the summary given to the supervisor agent
+    num_ranked_hypotheses_at_meta_review: int = 0
+    previous_meta_review: Optional[MetaReviewTournamentState] = None
+    actions: List[str] = []
+    cosine_similarity_trajectory: List[float] = []
+    cluster_count_trajectory: List[int] = []
+
     _iteration: int = 0  # Hidden parameter for tracking saves
 
     def __init__(self, goal: str):
@@ -381,6 +390,12 @@ class CoscientistStateManager:
 
         return [h_id for h_id, _ in ranked_order if h_id in have_competed]
 
+    def summarize_tournament_trajectory(self) -> str:
+        """
+        Summarizes the trajectory of the tournament for the supervisor agent.
+        """
+        return self._state.tournament.summarize_tournament_trajectory()
+
     def get_hypothesis_by_uid(
         self,
         uid: str,
@@ -442,6 +457,15 @@ class CoscientistStateManager:
         )
 
     @property
+    def num_unranked_hypotheses(self) -> int:
+        """
+        Get the number of hypotheses that have not yet been ranked in the tournament.
+        """
+        return len(self._state.tournament.hypotheses) - len(
+            self._state.tournament.get_win_loss_records()
+        )
+
+    @property
     def reflection_queue_is_empty(self) -> bool:
         """
         Check if the reflection queue is empty.
@@ -489,6 +513,27 @@ class CoscientistStateManager:
         self._state.evolved_hypotheses.append(evolved_hypothesis)
 
     @_maybe_save(n=1)
+    def add_action(self, action: str) -> None:
+        """
+        Add a tournament hypothesis to the collection.
+        """
+        self._state.actions.append(action)
+
+    @_maybe_save(n=1)
+    def add_cosine_similarity(self, cosine_similarity: float) -> None:
+        """
+        Add a cosine similarity score to the collection.
+        """
+        self._state.cosine_similarity_trajectory.append(cosine_similarity)
+
+    @_maybe_save(n=1)
+    def add_cluster_count(self, cluster_count: int) -> None:
+        """
+        Add a cluster count to the collection.
+        """
+        self._state.cluster_count_trajectory.append(cluster_count)
+
+    @_maybe_save(n=1)
     def update_literature_review(
         self, literature_review: LiteratureReviewState
     ) -> None:
@@ -512,7 +557,29 @@ class CoscientistStateManager:
         meta_review : MetaReviewTournamentState
             The new meta-review state
         """
+        if self._state.previous_meta_review is not None:
+            self._state.previous_meta_review = self._state.meta_review
+
         self._state.meta_review = meta_review
+        self._state.num_ranked_hypotheses_at_meta_review = len(
+            self._state.tournament.get_win_loss_records()
+        )
+
+    @_maybe_save(n=1)
+    def update_proximity_graph_edges(self) -> None:
+        """
+        Update the proximity graph state.
+        """
+        assert (
+            self._state.proximity_graph is not None
+        ), "Proximity graph is not initialized"
+        self._state.proximity_graph.update_edges()
+        self._state.cosine_similarity_trajectory.append(
+            self._state.proximity_graph.average_cosine_similarity
+        )
+        self._state.cluster_count_trajectory.append(
+            len(self._state.proximity_graph.get_semantic_communities())
+        )
 
     @_maybe_save(n=3)
     def advance_hypothesis(self, kind: Literal["generated", "evolved"]) -> None:
@@ -859,8 +926,87 @@ class CoscientistStateManager:
                 "Tournament must be initialized before meta-review can begin"
             )
 
+        # Compute the cosine similarity between all hypotheses
+        # before meta-review
         return MetaReviewTournamentState(
             goal=self._state.goal,
             tournament=self._state.tournament,
             top_k=top_k,
+        )
+
+    def next_supervisor_state(self) -> SupervisorDecisionState:
+        """
+        Create an initial state for the supervisor agent.
+        """
+        # Get meta review content
+        meta_review = (
+            self._state.meta_review["result"] if self._state.meta_review else ""
+        )
+        previous_meta_review = (
+            self._state.previous_meta_review["result"]
+            if self._state.previous_meta_review
+            else ""
+        )
+
+        # Get tournament statistics if tournament exists
+        if self._state.tournament is not None:
+            tournament_stats = self._state.tournament.summarize_tournament_trajectory()
+            total_matches_played = tournament_stats["total_matches_played"]
+            total_rounds_played = tournament_stats["total_rounds_played"]
+            top_3_elo_ratings = str(tournament_stats["top_3_elo_ratings"])
+            max_elo_rating = str(tournament_stats["max_elo_rating"])
+            num_elo_ratings_over_1400 = str(
+                tournament_stats["num_elo_ratings_over_1400"]
+            )
+            median_elo_rating = str(tournament_stats["median_elo_rating"])
+        else:
+            total_matches_played = 0
+            total_rounds_played = 0
+            top_3_elo_ratings = "[]"
+            max_elo_rating = "[]"
+            num_elo_ratings_over_1400 = "[]"
+            median_elo_rating = "[]"
+
+        # Get literature review subtopics completed
+        literature_review_subtopics_completed = (
+            len(self._state.literature_review.get("subtopics", []))
+            if self._state.literature_review
+            else 0
+        )
+
+        # Format latest actions (most recent first)
+        latest_actions = ", ".join(reversed(self._state.actions[-10:]))
+
+        # Calculate new hypotheses since last meta-review
+        current_ranked_hypotheses = (
+            len(self._state.tournament.get_win_loss_records())
+            if self._state.tournament
+            else 0
+        )
+        new_hypotheses_since_meta_review = (
+            current_ranked_hypotheses - self._state.num_ranked_hypotheses_at_meta_review
+        )
+
+        # Count total meta-reviews completed (initial + supervisor-decided ones)
+        num_meta_reviews = 1 + self._state.actions.count("run_meta_review")
+
+        return SupervisorDecisionState(
+            goal=self._state.goal,
+            meta_review=meta_review,
+            previous_meta_review=previous_meta_review,
+            total_actions=len(self._state.actions),
+            latest_actions=latest_actions,
+            total_hypotheses=self.total_hypotheses,
+            num_unranked_hypotheses=self.num_unranked_hypotheses,
+            num_meta_reviews=num_meta_reviews,
+            new_hypotheses_since_meta_review=new_hypotheses_since_meta_review,
+            total_matches_played=total_matches_played,
+            total_rounds_played=total_rounds_played,
+            top_3_elo_ratings=top_3_elo_ratings,
+            max_elo_rating=max_elo_rating,
+            num_elo_ratings_over_1400=num_elo_ratings_over_1400,
+            median_elo_rating=median_elo_rating,
+            cosine_similarity_trajectory=str(self._state.cosine_similarity_trajectory),
+            cluster_count_trajectory=str(self._state.cluster_count_trajectory),
+            literature_review_subtopics_completed=literature_review_subtopics_completed,
         )

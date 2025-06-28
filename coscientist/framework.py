@@ -7,7 +7,7 @@ by a supervisor agent.
 import logging
 import math
 import random
-from typing import Dict, List
+from typing import Dict, List, Set
 
 import numpy as np
 from langchain_anthropic import ChatAnthropic
@@ -165,6 +165,17 @@ class CoscientistFramework:
         """
         return list(ReasoningType.__members__.keys())
 
+    def get_semantic_communities(
+        self, resolution: float = 1.0, min_weight: float = 0.85
+    ) -> List[Set[str]]:
+        """
+        Get the semantic communities of the hypotheses.
+        """
+        self.state_manager.proximity_graph.update_edges()
+        return self.state_manager.proximity_graph.get_semantic_communities(
+            resolution=resolution, min_weight=min_weight
+        )
+
     def process_reflection_queue(self) -> None:
         """
         Process all hypotheses in the reflection queue through deep verification.
@@ -188,7 +199,7 @@ class CoscientistFramework:
                 final_reflection_state["reviewed_hypothesis"]
             )
 
-    def generate_new_hypothesis(self) -> None:
+    def _generate_new_hypothesis(self) -> None:
         """
         Run the hypothesis generation for a given mode and config.
         """
@@ -270,8 +281,9 @@ class CoscientistFramework:
             self.state_manager.update_literature_review(final_lit_review_state)
 
         # TODO: Make this async
-        for _ in range(max(0, n_hypotheses - self.state_manager.total_hypotheses)):
-            self.generate_new_hypothesis()
+        _ = await self.generate_new_hypotheses(
+            n_hypotheses=max(0, n_hypotheses - self.state_manager.total_hypotheses)
+        )
 
         # Move generated hypotheses to the reflection queue
         self.state_manager.advance_all_hypotheses(kind="generated")
@@ -290,6 +302,21 @@ class CoscientistFramework:
         # Feels like it should be fixed for the sake of consistency though
         self.run_tournament(llm=self.config.meta_review_agent_llm, k_bracket=k_bracket)
         self.run_meta_review(k_bracket=k_bracket)
+
+    async def generate_new_hypotheses(self, n_hypotheses: int = 4) -> None:
+        """
+        Generate new hypotheses.
+        """
+        for _ in range(n_hypotheses):
+            self._generate_new_hypothesis()
+
+        # Move generated hypotheses to the reflection queue
+        self.state_manager.advance_all_hypotheses(kind="generated")
+
+        # Now run through the review queue and perform deep verification
+        self.process_reflection_queue()
+        self.state_manager.advance_all_hypotheses(kind="reviewed")
+        self.state_manager.update_proximity_graph_edges()
 
     async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
         """
@@ -358,6 +385,7 @@ class CoscientistFramework:
 
         # Move the reviewed hypothesis to the EloTournament.
         self.state_manager.advance_all_hypotheses(kind="reviewed")
+        self.state_manager.update_proximity_graph_edges()
 
     def expand_literature_review(self) -> None:
         raise NotImplementedError("Expanding literature review is not implemented yet")
@@ -374,3 +402,23 @@ class CoscientistFramework:
         meta_review_agent = build_meta_review_agent(self.config.meta_review_agent_llm)
         final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
         self.state_manager.update_meta_review(final_meta_review_state)
+
+    def finish(self) -> None:
+        # Will trigger the writing of a final report
+        raise NotImplementedError(
+            "Finishing the Coscientist system is not implemented yet"
+        )
+
+    @classmethod
+    def available_actions(self) -> List[str]:
+        """
+        List the available actions for the Coscientist system.
+        """
+        return [
+            "generate_new_hypotheses",
+            "evolve_hypotheses",
+            "expand_literature_review",
+            "run_tournament",
+            "run_meta_review",
+            "finish",
+        ]

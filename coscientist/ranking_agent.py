@@ -20,6 +20,7 @@ queue.
 """
 
 import itertools  # Add itertools for combinations
+import statistics
 from typing import Dict, List, Optional, Tuple  # Add Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -120,6 +121,8 @@ class EloTournament:
         self.hypotheses: Dict[str, ReviewedHypothesis] = {}  # id -> Hypothesis object
         self.ratings: Dict[str, float] = {}  # id -> ELO rating
         self.match_history: Dict[Tuple[int, int, int], RankingMatchResult] = {}
+
+        self._past_tournament_ratings: List[List[float]] = []
 
     def add_hypothesis(
         self, hypothesis: ReviewedHypothesis, initial_rating: float = DEFAULT_ELO
@@ -321,6 +324,7 @@ class EloTournament:
         """
         self.run_round_robin_stage(llm)
         self.run_bracket_stage(llm, k=k_bracket)
+        self._past_tournament_ratings.append(list(self.ratings.values()))
 
     def get_win_loss_records(self) -> Dict[str, Dict[str, int]]:
         """
@@ -346,3 +350,29 @@ class EloTournament:
             records[loser_id]["losses"] += 1
 
         return records
+
+    def summarize_tournament_trajectory(self) -> str:
+        """
+        Summarizes the trajectory of the tournament for the supervisor agent.
+        """
+        summary_stats_dict = {
+            "max_elo_rating": [],
+            "num_elo_ratings_over_1400": [],
+            "median_elo_rating": [],
+        }
+        for round_ratings in self._past_tournament_ratings:
+            summary_stats_dict["max_elo_rating"].append(max(round_ratings))
+            summary_stats_dict["num_elo_ratings_over_1400"].append(
+                sum(1 for rating in round_ratings if rating >= 1400)
+            )
+            summary_stats_dict["median_elo_rating"].append(
+                statistics.median(round_ratings)
+            )
+
+        summary_stats_dict["top_3_elo_ratings"] = [
+            rating for _, rating in self.get_sorted_hypotheses()[:3]
+        ]
+        summary_stats_dict["total_matches_played"] = len(self.match_history)
+        summary_stats_dict["total_rounds_played"] = len(self._past_tournament_ratings)
+
+        return summary_stats_dict
