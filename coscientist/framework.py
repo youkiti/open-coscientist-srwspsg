@@ -27,6 +27,7 @@ from coscientist.literature_review_agent import build_literature_review_agent
 from coscientist.meta_review_agent import build_meta_review_agent
 from coscientist.reasoning_types import ReasoningType
 from coscientist.reflection_agent import build_deep_verification_agent
+from coscientist.supervisor_agent import build_supervisor_agent
 
 # Generally reasoning models are better suited for the scientific reasoning
 # tasks entailed by the Coscientist system.
@@ -95,6 +96,9 @@ class CoscientistConfig:
         reflection_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         evolution_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         meta_review_agent_llm: BaseChatModel = _CHEAPER_LLM_POOL["gemini-2.5-flash"],
+        supervisor_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
+            "claude-sonnet-4-20250514"
+        ],
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small", dimensions=256
         ),
@@ -106,6 +110,7 @@ class CoscientistConfig:
         self.reflection_agent_llms = reflection_agent_llms
         self.evolution_agent_llms = evolution_agent_llms
         self.meta_review_agent_llm = meta_review_agent_llm
+        self.supervisor_agent_llm = supervisor_agent_llm
         self.proximity_agent_embedding_model = proximity_agent_embedding_model
         self.specialist_fields = specialist_fields
 
@@ -387,15 +392,19 @@ class CoscientistFramework:
         self.state_manager.advance_all_hypotheses(kind="reviewed")
         self.state_manager.update_proximity_graph_edges()
 
-    def expand_literature_review(self) -> None:
+    async def expand_literature_review(self) -> None:
         raise NotImplementedError("Expanding literature review is not implemented yet")
 
-    def run_tournament(self, k_bracket: int = 4) -> None:
+    async def run_tournament(self, k_bracket: int = 16) -> None:
+        k_bracket = min(
+            k_bracket,
+            2 ** math.floor(math.log2(self.state_manager.num_tournament_hypotheses)),
+        )
         self.state_manager.run_tournament(
             llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
         )
 
-    def run_meta_review(self, k_bracket: int = 4) -> None:
+    async def run_meta_review(self, k_bracket: int = 4) -> None:
         initial_meta_review_state = self.state_manager.next_meta_review_state(
             top_k=k_bracket
         )
@@ -403,7 +412,7 @@ class CoscientistFramework:
         final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
         self.state_manager.update_meta_review(final_meta_review_state)
 
-    def finish(self) -> None:
+    async def finish(self) -> None:
         # Will trigger the writing of a final report
         raise NotImplementedError(
             "Finishing the Coscientist system is not implemented yet"
@@ -422,3 +431,19 @@ class CoscientistFramework:
             "run_meta_review",
             "finish",
         ]
+
+    async def run(self) -> None:
+        """
+        Runs the coscientist system until it is finished.
+        """
+        # Start off with 4 hypotheses
+        _ = await self.start(n_hypotheses=4)
+        supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
+
+        current_action = None
+        while current_action != "finish":
+            initial_supervisor_state = self.state_manager.next_supervisor_state()
+            final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
+            current_action = final_supervisor_state["action"]
+            print(f"Supervisor decided to {current_action}.")
+            _ = await getattr(self, current_action)()

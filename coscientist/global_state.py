@@ -18,7 +18,7 @@ from coscientist.meta_review_agent import MetaReviewTournamentState
 from coscientist.proximity_agent import ProximityGraph
 from coscientist.ranking_agent import EloTournament
 from coscientist.reflection_agent import ReflectionState
-from coscientist.supervisor import SupervisorDecisionState
+from coscientist.supervisor_agent import SupervisorDecisionState
 
 # Global configuration for output directory
 _OUTPUT_DIR = os.environ.get("COSCIENTIST_DIR", os.path.expanduser("~/.coscientist"))
@@ -455,6 +455,13 @@ class CoscientistStateManager:
             + len(self._state.evolved_hypotheses)
             + len(self._state.tournament.hypotheses)
         )
+
+    @property
+    def num_tournament_hypotheses(self) -> int:
+        """
+        Get the number of hypotheses currently in the tournament.
+        """
+        return len(self._state.tournament.hypotheses)
 
     @property
     def num_unranked_hypotheses(self) -> int:
