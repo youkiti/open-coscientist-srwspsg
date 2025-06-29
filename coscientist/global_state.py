@@ -2,7 +2,7 @@ import hashlib
 import os
 import pickle
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -84,9 +84,9 @@ class CoscientistState:
     # Fields need for the summary given to the supervisor agent
     num_ranked_hypotheses_at_meta_review: int = 0
     previous_meta_review: Optional[MetaReviewTournamentState] = None
-    actions: List[str] = []
-    cosine_similarity_trajectory: List[float] = []
-    cluster_count_trajectory: List[int] = []
+    actions: List[str] = field(default_factory=list)
+    cosine_similarity_trajectory: List[float] = field(default_factory=list)
+    cluster_count_trajectory: List[int] = field(default_factory=list)
 
     _iteration: int = 0  # Hidden parameter for tracking saves
 
@@ -101,6 +101,9 @@ class CoscientistState:
         self.proximity_graph = None
         self.reflection_queue = []
         self.final_report = None
+        self.actions = []
+        self.cosine_similarity_trajectory = []
+        self.cluster_count_trajectory = []
         self._iteration = 0
 
         # Create goal-specific output directory
@@ -588,7 +591,7 @@ class CoscientistStateManager:
         meta_review : MetaReviewTournamentState
             The new meta-review state
         """
-        if self._state.previous_meta_review is not None:
+        if self._state.meta_review is not None:
             self._state.previous_meta_review = self._state.meta_review
 
         self._state.meta_review = meta_review
@@ -680,9 +683,6 @@ class CoscientistStateManager:
             raise IndexError("No reviewed hypotheses available to advance")
 
         reviewed_hypothesis_state = self._state.reviewed_hypotheses.pop(0)
-        if not reviewed_hypothesis_state["passed_initial_filter"]:
-            return
-
         # Add to tournament
         assert self._state.tournament is not None, "Tournament is not initialized"
         self._state.tournament.add_hypothesis(reviewed_hypothesis_state)
@@ -752,10 +752,13 @@ class CoscientistStateManager:
         if self._state.literature_review is not None:
             subtopics = self._state.literature_review.get("subtopics", [])
             subtopic_reports = self._state.literature_review.get("subtopic_reports", [])
-            meta_review = self._state.literature_review.get("meta_review", "")
         else:
             subtopics = []
             subtopic_reports = []
+
+        if self._state.meta_review is not None:
+            meta_review = self._state.meta_review["result"]
+        else:
             meta_review = ""
 
         return LiteratureReviewState(
@@ -763,7 +766,7 @@ class CoscientistStateManager:
             max_subtopics=max_subtopics,
             subtopics=subtopics,
             subtopic_reports=subtopic_reports,
-            meta_review=meta_review["result"],
+            meta_review=meta_review,
         )
 
     def next_generation_state(
@@ -1057,7 +1060,9 @@ class CoscientistStateManager:
             max_elo_rating=max_elo_rating,
             num_elo_ratings_over_1400=num_elo_ratings_over_1400,
             median_elo_rating=median_elo_rating,
-            cosine_similarity_trajectory=str(self._state.cosine_similarity_trajectory),
-            cluster_count_trajectory=str(self._state.cluster_count_trajectory),
+            cosine_similarity_trajectory=str(
+                self._state.cosine_similarity_trajectory[::-1]
+            ),
+            cluster_count_trajectory=str(self._state.cluster_count_trajectory[::-1]),
             literature_review_subtopics_completed=literature_review_subtopics_completed,
         )

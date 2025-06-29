@@ -91,4 +91,4 @@ class ProximityGraph:
     @property
     def average_cosine_similarity(self) -> float:
         """Get the average cosine similarity of the graph."""
-        return np.mean([d["weight"] for d in self.graph.edges(data=True)]).item()
+        return np.mean([d["weight"] for u, v, d in self.graph.edges(data=True)]).item()

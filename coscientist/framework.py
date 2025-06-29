@@ -100,6 +100,9 @@ class CoscientistConfig:
         supervisor_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
             "claude-sonnet-4-20250514"
         ],
+        final_report_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
+            "claude-sonnet-4-20250514"
+        ],
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small", dimensions=256
         ),
@@ -113,6 +116,7 @@ class CoscientistConfig:
         self.meta_review_agent_llm = meta_review_agent_llm
         self.supervisor_agent_llm = supervisor_agent_llm
         self.proximity_agent_embedding_model = proximity_agent_embedding_model
+        self.final_report_agent_llm = final_report_agent_llm
         self.specialist_fields = specialist_fields
 
 
@@ -201,9 +205,10 @@ class CoscientistFramework:
                 checkpointer=None,
             )
             final_reflection_state = reflection_agent.invoke(initial_reflection_state)
-            self.state_manager.add_reviewed_hypothesis(
-                final_reflection_state["reviewed_hypothesis"]
-            )
+            if final_reflection_state["passed_initial_filter"]:
+                self.state_manager.add_reviewed_hypothesis(
+                    final_reflection_state["reviewed_hypothesis"]
+                )
 
     def _generate_new_hypothesis(self) -> None:
         """
@@ -269,7 +274,7 @@ class CoscientistFramework:
         if self.state_manager.is_started:
             raise ValueError(
                 "Coscientist system has already been started. "
-                "Use the step method instead!"
+                f"Use one of {self.available_actions()} instead!"
             )
 
         # Perform the initial literature review.
@@ -306,10 +311,10 @@ class CoscientistFramework:
         k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
         # TODO: Figure out the right LLM for this job; should it be different from meta-review?
         # Feels like it should be fixed for the sake of consistency though
-        self.run_tournament(llm=self.config.meta_review_agent_llm, k_bracket=k_bracket)
+        self.run_tournament(k_bracket=k_bracket)
         self.run_meta_review(k_bracket=k_bracket)
 
-    async def generate_new_hypotheses(self, n_hypotheses: int = 4) -> None:
+    async def generate_new_hypotheses(self, n_hypotheses: int = 2) -> None:
         """
         Generate new hypotheses.
         """
@@ -324,7 +329,7 @@ class CoscientistFramework:
         self.state_manager.advance_all_hypotheses(kind="reviewed")
         self.state_manager.update_proximity_graph_edges()
 
-    async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
+    async def evolve_hypotheses(self, n_hypotheses: int = 2) -> None:
         """
         Takes the top (n_hypotheses // 2) hypotheses and evolves them. Also
         randomly selects (n_hypotheses // 2) hypotheses to evolve.
@@ -409,7 +414,7 @@ class CoscientistFramework:
         )
         self.state_manager.update_literature_review(final_lit_review_state)
 
-    async def run_tournament(self, k_bracket: int = 16) -> None:
+    async def run_tournament(self, k_bracket: int = 2) -> None:
         k_bracket = min(
             k_bracket,
             2 ** math.floor(math.log2(self.state_manager.num_tournament_hypotheses)),
@@ -418,7 +423,7 @@ class CoscientistFramework:
             llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
         )
 
-    async def run_meta_review(self, k_bracket: int = 4) -> None:
+    async def run_meta_review(self, k_bracket: int = 2) -> None:
         initial_meta_review_state = self.state_manager.next_meta_review_state(
             top_k=k_bracket
         )
@@ -453,11 +458,13 @@ class CoscientistFramework:
         Runs the coscientist system until it is finished.
         """
         # Start off with 4 hypotheses
-        _ = await self.start(n_hypotheses=4)
+        if not self.state_manager.is_started:
+            _ = await self.start(n_hypotheses=2)
+
         supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
 
         current_action = None
-        while not self.state_manager.is_finished():
+        while not self.state_manager.is_finished:
             initial_supervisor_state = self.state_manager.next_supervisor_state()
             final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
             current_action = final_supervisor_state["action"]
@@ -466,5 +473,6 @@ class CoscientistFramework:
             ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
             print(f"Supervisor decided to {current_action}.")
             _ = await getattr(self, current_action)()
+            self.state_manager.add_action(current_action)
 
         return self.state_manager.final_report, self.state_manager.meta_review

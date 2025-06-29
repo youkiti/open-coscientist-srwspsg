@@ -15,6 +15,7 @@ For subsequent contributions that continue an existing discussion:
 * Do not be unnecessarily charitable in your assessments of either hypothesis. Scientific progress requires rigor. We're seeking the truth and have limited resources to chase unproductive leads.
 * Exhibit boldness and creativity in your contributions.
 * Maintain a helpful and collaborative approach.
+* Consider the reviews of the hypotheses but remember that absence of evidence is not evidence of absence.
 
 Once the discussion has reached a point of sufficient depth (typically 3-5 turns, up to 10 turns) and all relevant questions, concerns, and arguments have been thoroughly addressed, provide a consensus judgment for the better hypothesis. The judgment should succinctly state the rationale for the selection. Conclude with the phrase "WINNER: <1 or 2>" (in all capital letters), denoting the id of the superior hypothesis. Write nothing after this declaration.
 

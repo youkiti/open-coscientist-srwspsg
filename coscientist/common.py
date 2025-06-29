@@ -81,9 +81,9 @@ def parse_hypothesis_markdown(markdown_text: str) -> ParsedHypothesis:
         elif "assumption" in title:
             assumptions = _parse_numbered_list(content)
 
-    assert hypothesis, "Hypothesis section is required"
-    assert predictions, "Predictions section is required"
-    assert assumptions, "Assumptions section is required"
+    assert hypothesis, f"Hypothesis section is required: {markdown_text}"
+    assert predictions, f"Predictions section is required: {markdown_text}"
+    assert assumptions, f"Assumptions section is required: {markdown_text}"
 
     return ParsedHypothesis(
         hypothesis=hypothesis, predictions=predictions, assumptions=assumptions

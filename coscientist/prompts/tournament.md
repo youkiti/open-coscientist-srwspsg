@@ -15,6 +15,7 @@ Criteria ordered by importance:
 2. Novelty. Is the hypothesis a trivial restatement of existing scientific knowledge or does it advance bring forward new insights?
 3. Falsifiability. Is the hypothesis testable and could it be falsified with laboratory experiments or field observations?
 4. Robustness. Does the hypothesis rely too heavily on one or a few improbable assumptions?
+5. Consider the reviews of the hypotheses but remember that absence of evidence is not evidence of absence.
 
 # Research goal for hypotheses
 {{ goal }}

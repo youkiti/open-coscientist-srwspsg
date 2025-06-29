@@ -37,7 +37,7 @@ For subsequent contributions that continue an existing discussion:
 When sufficient discussion has transpired (typically 3-5 conversational turns, with a maximum of 10 turns) and all relevant questions and points have been thoroughly addressed and clarified, conclude the process by writing up a final hypothesis report in markdown format.
 
 # Final hypothesis report format
-You must indicate the start of the report with "#FINAL REPORT#" (in all capital letters, this is critical to let a moderator know when your discussion is finished). The report should be written in markdown with the following headings: # Hypothesis, # Falsifiable Predictions, # Assumptions. 
+You must indicate the start of the report with "#FINAL REPORT#" (in all capital letters, this is critical to let a moderator know when your discussion is finished). ONLY WRITE #FINAL REPORT# IMMEDIATELY BEFORE WRITING THE REPORT. If still in discussion simply refer to it as the "final report", without caps and without the hashtags. The report should be written in markdown with the following headings: # Hypothesis, # Falsifiable Predictions, # Assumptions. 
 
 1. In the Hypothesis section, state the final self-contained hypothesis agreed upon by the group. Describe the hypothesis in detail, including specific entities, mechanisms, and anticipated outcomes.
 2. In the Falsifiable Predictions section, make a list of self-contained predictions that could be tested to disprove your hypothesis. Aim for at least 1 prediction and no more than 3. Each prediction must clearly state an entity to be tested, the conditions under which it will be tested, and an expected outcome. Later, another scientist will decide how to implement a test (e.g., clinical or in vitro) for each prediction. 

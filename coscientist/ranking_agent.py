@@ -360,7 +360,7 @@ class EloTournament:
             "num_elo_ratings_over_1400": [],
             "median_elo_rating": [],
         }
-        for round_ratings in self._past_tournament_ratings:
+        for round_ratings in self._past_tournament_ratings[::-1]:
             summary_stats_dict["max_elo_rating"].append(max(round_ratings))
             summary_stats_dict["num_elo_ratings_over_1400"].append(
                 sum(1 for rating in round_ratings if rating >= 1400)
