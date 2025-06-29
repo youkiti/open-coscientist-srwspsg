@@ -7,7 +7,7 @@ by a supervisor agent.
 import logging
 import math
 import random
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 import numpy as np
 from langchain_anthropic import ChatAnthropic
@@ -17,6 +17,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from coscientist.evolution_agent import build_evolution_agent
+from coscientist.final_report_agent import build_final_report_agent
 from coscientist.generation_agent import (
     CollaborativeConfig,
     IndependentConfig,
@@ -393,7 +394,20 @@ class CoscientistFramework:
         self.state_manager.update_proximity_graph_edges()
 
     async def expand_literature_review(self) -> None:
-        raise NotImplementedError("Expanding literature review is not implemented yet")
+        """
+        Expands the literature review by adding more subtopics.
+        """
+        initial_lit_review_state = self.state_manager.next_literature_review_state(
+            # TODO: Make this configurable
+            max_subtopics=5
+        )
+        literature_review_agent = build_literature_review_agent(
+            self.config.literature_review_agent_llm
+        )
+        final_lit_review_state = await literature_review_agent.ainvoke(
+            initial_lit_review_state
+        )
+        self.state_manager.update_literature_review(final_lit_review_state)
 
     async def run_tournament(self, k_bracket: int = 16) -> None:
         k_bracket = min(
@@ -413,10 +427,12 @@ class CoscientistFramework:
         self.state_manager.update_meta_review(final_meta_review_state)
 
     async def finish(self) -> None:
-        # Will trigger the writing of a final report
-        raise NotImplementedError(
-            "Finishing the Coscientist system is not implemented yet"
+        initial_final_report_state = self.state_manager.next_final_report_state(top_k=3)
+        final_report_agent = build_final_report_agent(
+            self.config.final_report_agent_llm
         )
+        final_report_state = final_report_agent.invoke(initial_final_report_state)
+        self.state_manager.update_final_report(final_report_state)
 
     @classmethod
     def available_actions(self) -> List[str]:
@@ -432,7 +448,7 @@ class CoscientistFramework:
             "finish",
         ]
 
-    async def run(self) -> None:
+    async def run(self) -> Tuple[str, str]:
         """
         Runs the coscientist system until it is finished.
         """
@@ -441,9 +457,14 @@ class CoscientistFramework:
         supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
 
         current_action = None
-        while current_action != "finish":
+        while not self.state_manager.is_finished():
             initial_supervisor_state = self.state_manager.next_supervisor_state()
             final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
             current_action = final_supervisor_state["action"]
+            assert (
+                current_action in self.available_actions()
+            ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
             print(f"Supervisor decided to {current_action}.")
             _ = await getattr(self, current_action)()
+
+        return self.state_manager.final_report, self.state_manager.meta_review

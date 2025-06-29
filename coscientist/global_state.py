@@ -12,6 +12,7 @@ from langchain_core.language_models import BaseChatModel
 
 from coscientist.custom_types import ParsedHypothesis, ReviewedHypothesis
 from coscientist.evolution_agent import EvolveFromFeedbackState, OutOfTheBoxState
+from coscientist.final_report_agent import FinalReportState
 from coscientist.generation_agent import CollaborativeState, IndependentState
 from coscientist.literature_review_agent import LiteratureReviewState
 from coscientist.meta_review_agent import MetaReviewTournamentState
@@ -78,6 +79,7 @@ class CoscientistState:
     meta_review: Optional[MetaReviewTournamentState]
     proximity_graph: Optional[ProximityGraph]
     reflection_queue: List[ParsedHypothesis]
+    final_report: Optional[FinalReportState]
 
     # Fields need for the summary given to the supervisor agent
     num_ranked_hypotheses_at_meta_review: int = 0
@@ -98,6 +100,7 @@ class CoscientistState:
         self.meta_review = None
         self.proximity_graph = None
         self.reflection_queue = []
+        self.final_report = None
         self._iteration = 0
 
         # Create goal-specific output directory
@@ -371,11 +374,32 @@ class CoscientistStateManager:
         return self._state.meta_review is not None
 
     @property
+    def is_finished(self) -> bool:
+        """
+        Check if the Coscientist system has finished.
+        """
+        return self._state.final_report is not None
+
+    @property
     def has_literature_review(self) -> bool:
         """
         Check if the Coscientist system has completed the literature review.
         """
         return self._state.literature_review is not None
+
+    @property
+    def final_report(self) -> str:
+        """
+        Get the final report state.
+        """
+        return self._state.final_report["result"]
+
+    @property
+    def meta_review(self) -> str:
+        """
+        Get the meta-review state.
+        """
+        return self._state.meta_review["result"]
 
     def get_tournament_hypotheses_for_evolution(self) -> List[str]:
         """
@@ -588,6 +612,13 @@ class CoscientistStateManager:
             len(self._state.proximity_graph.get_semantic_communities())
         )
 
+    @_maybe_save(n=1)
+    def update_final_report(self, final_report: FinalReportState) -> None:
+        """
+        Update the final report state.
+        """
+        self._state.final_report = final_report
+
     @_maybe_save(n=3)
     def advance_hypothesis(self, kind: Literal["generated", "evolved"]) -> None:
         """
@@ -721,15 +752,18 @@ class CoscientistStateManager:
         if self._state.literature_review is not None:
             subtopics = self._state.literature_review.get("subtopics", [])
             subtopic_reports = self._state.literature_review.get("subtopic_reports", [])
+            meta_review = self._state.literature_review.get("meta_review", "")
         else:
             subtopics = []
             subtopic_reports = []
+            meta_review = ""
 
         return LiteratureReviewState(
             goal=self._state.goal,
             max_subtopics=max_subtopics,
             subtopics=subtopics,
             subtopic_reports=subtopic_reports,
+            meta_review=meta_review["result"],
         )
 
     def next_generation_state(
@@ -936,6 +970,16 @@ class CoscientistStateManager:
         # Compute the cosine similarity between all hypotheses
         # before meta-review
         return MetaReviewTournamentState(
+            goal=self._state.goal,
+            tournament=self._state.tournament,
+            top_k=top_k,
+        )
+
+    def next_final_report_state(self, top_k: int = 3) -> FinalReportState:
+        """
+        Create an initial state for the final report agent.
+        """
+        return FinalReportState(
             goal=self._state.goal,
             tournament=self._state.tournament,
             top_k=top_k,

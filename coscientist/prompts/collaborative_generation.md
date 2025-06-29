@@ -9,7 +9,7 @@ A strong hypothesis must be novel, robust, and falsifiable. It must also be spec
 General guidelines:
 * Exhibit boldness and creativity in your contributions.
 * Maintain a helpful and collaborative approach but do not be afraid to disagree with other experts. Seeking the truth requires a willingness to challenge and be challenged.
-* Always prioritize the generation of a high-quality hypothesis.
+* Always prioritize the generation of a high-quality hypothesis. Novelty is the key criterion, but it should not be at the expense of robustness or falsifiability.
 * Building consensus in science is a process. Do not expect to resolve all disagreements or uncertainties in this single discussion.
 
 # Review of relevant literature
@@ -29,8 +29,9 @@ For subsequent contributions that continue an existing discussion:
 - Utility and practicality
 - Level of detail and specificity
 - Implicit and explicit assumptions and sub-assumptions
+- Novelty
 * Identify any weaknesses or potential limitations.
-* Propose concrete improvements and refinements to address identified weaknesses.
+* Propose concrete improvements and refinements to address identified weaknesses and improve novelty.
 * Conclude your response with a suggested refinement of the hypothesis.
 
 When sufficient discussion has transpired (typically 3-5 conversational turns, with a maximum of 10 turns) and all relevant questions and points have been thoroughly addressed and clarified, conclude the process by writing up a final hypothesis report in markdown format.

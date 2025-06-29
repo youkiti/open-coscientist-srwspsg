@@ -56,32 +56,33 @@ These statistics are updated after each literature review.
 # Decision-Making Framework
 **Consider recent actions:** Review the latest actions to avoid repeating the same action too frequently and to understand the current research trajectory.
 
-## When to GENERATE NEW HYPOTHESES:
+## When to generate_new_hypotheses:
 - Total hypotheses < 8-10 (insufficient exploration)
 - Average cosine similarity score is high (>0.85) indicating hypotheses are too similar
 - All current hypotheses have poor performance (median Elo < 1300)
 
-## When to EVOLVE HYPOTHESES:
+## When to evolve_hypotheses:
 - Have 4+ hypotheses with strong performance (Elo > 1300)
 - Sufficient diversity exists to avoid over-optimization (average cosine similarity score <0.85)
 - Meta-review suggests promising directions worth refining
 
-## When to RUN TOURNAMENT:
+## When to run_tournament:
 - Several unranked hypotheses exist (>4)
 - Before deciding to finish
 
-## When to RUN META-REVIEW:
+## When to run_meta_review:
 - At least 4+ new hypotheses ranked since last meta-review
 - Always if there are 10 or more new hypotheses since last meta-review
 - Before major strategic decisions (literature expansion, evolution, finishing)
 - Performance plateau suggests need for strategic insight
 
-## When to EXPAND LITERATURE REVIEW:
-- Meta-review identifies significant knowledge gaps
+## When to expand_literature_review:
+- Meta-review identifies significant and persistent knowledge gaps
 - Current hypotheses cluster around limited research approaches (few distinct clusters)
 - Similarity score remains high despite multiple generation attempts
+- Never when there are 20+ subtopics currently in the literature review
 
-## When to FINISH:
+## When to finish:
 - At least 3+ high-quality hypotheses (Elo > 1400) identified
 - Diminishing returns evident (trajectory shows max/median Elo plateauing over last 3+ meta-reviews)
 - Research goal appears sufficiently addressed
