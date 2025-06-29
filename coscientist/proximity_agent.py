@@ -73,8 +73,8 @@ class ProximityGraph:
             self._compute_weighted_edges(hypothesis_ids_y, hypothesis_ids_y)
             self._compute_weighted_edges(hypothesis_ids_x, hypothesis_ids_y)
 
-    def get_partitions(
-        self, resolution: float = 1.0, min_weight: float = 0.3
+    def get_semantic_communities(
+        self, resolution: float = 1.0, min_weight: float = 0.85
     ) -> List[Set[int]]:
         """Get the partitions of the graph using the Louvain method."""
         # Prune edges from the graph with weight less than min_weight
@@ -87,3 +87,8 @@ class ProximityGraph:
         pruned_graph.remove_edges_from(edges_to_remove)
 
         return nx.community.louvain_communities(pruned_graph, resolution=resolution)
+
+    @property
+    def average_cosine_similarity(self) -> float:
+        """Get the average cosine similarity of the graph."""
+        return np.mean([d["weight"] for u, v, d in self.graph.edges(data=True)]).item()

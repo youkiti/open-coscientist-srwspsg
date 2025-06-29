@@ -27,6 +27,7 @@ class LiteratureReviewState(TypedDict):
     max_subtopics: int
     subtopics: List[str]
     subtopic_reports: List[str]
+    meta_review: str
 
 
 def parse_topic_decomposition(markdown_text: str) -> List[str]:
@@ -56,7 +57,11 @@ def _topic_decomposition_node(
     Node that decomposes the research goal into focused subtopics.
     """
     prompt = load_prompt(
-        "topic_decomposition", goal=state["goal"], max_subtopics=state["max_subtopics"]
+        "topic_decomposition",
+        goal=state["goal"],
+        max_subtopics=state["max_subtopics"],
+        subtopics=state.get("subtopics", ""),
+        meta_review=state.get("meta_review", ""),
     )
     response_content = llm.invoke(prompt).content
 

@@ -7,7 +7,7 @@ by a supervisor agent.
 import logging
 import math
 import random
-from typing import Dict, List
+from typing import Dict, List, Set, Tuple
 
 import numpy as np
 from langchain_anthropic import ChatAnthropic
@@ -17,6 +17,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from coscientist.evolution_agent import build_evolution_agent
+from coscientist.final_report_agent import build_final_report_agent
 from coscientist.generation_agent import (
     CollaborativeConfig,
     IndependentConfig,
@@ -27,6 +28,7 @@ from coscientist.literature_review_agent import build_literature_review_agent
 from coscientist.meta_review_agent import build_meta_review_agent
 from coscientist.reasoning_types import ReasoningType
 from coscientist.reflection_agent import build_deep_verification_agent
+from coscientist.supervisor_agent import build_supervisor_agent
 
 # Generally reasoning models are better suited for the scientific reasoning
 # tasks entailed by the Coscientist system.
@@ -95,6 +97,12 @@ class CoscientistConfig:
         reflection_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         evolution_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         meta_review_agent_llm: BaseChatModel = _CHEAPER_LLM_POOL["gemini-2.5-flash"],
+        supervisor_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
+            "claude-sonnet-4-20250514"
+        ],
+        final_report_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
+            "claude-sonnet-4-20250514"
+        ],
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small", dimensions=256
         ),
@@ -106,7 +114,9 @@ class CoscientistConfig:
         self.reflection_agent_llms = reflection_agent_llms
         self.evolution_agent_llms = evolution_agent_llms
         self.meta_review_agent_llm = meta_review_agent_llm
+        self.supervisor_agent_llm = supervisor_agent_llm
         self.proximity_agent_embedding_model = proximity_agent_embedding_model
+        self.final_report_agent_llm = final_report_agent_llm
         self.specialist_fields = specialist_fields
 
 
@@ -165,6 +175,17 @@ class CoscientistFramework:
         """
         return list(ReasoningType.__members__.keys())
 
+    def get_semantic_communities(
+        self, resolution: float = 1.0, min_weight: float = 0.85
+    ) -> List[Set[str]]:
+        """
+        Get the semantic communities of the hypotheses.
+        """
+        self.state_manager.proximity_graph.update_edges()
+        return self.state_manager.proximity_graph.get_semantic_communities(
+            resolution=resolution, min_weight=min_weight
+        )
+
     def process_reflection_queue(self) -> None:
         """
         Process all hypotheses in the reflection queue through deep verification.
@@ -184,11 +205,12 @@ class CoscientistFramework:
                 checkpointer=None,
             )
             final_reflection_state = reflection_agent.invoke(initial_reflection_state)
-            self.state_manager.add_reviewed_hypothesis(
-                final_reflection_state["reviewed_hypothesis"]
-            )
+            if final_reflection_state["passed_initial_filter"]:
+                self.state_manager.add_reviewed_hypothesis(
+                    final_reflection_state["reviewed_hypothesis"]
+                )
 
-    def generate_new_hypothesis(self) -> None:
+    def _generate_new_hypothesis(self) -> None:
         """
         Run the hypothesis generation for a given mode and config.
         """
@@ -252,7 +274,7 @@ class CoscientistFramework:
         if self.state_manager.is_started:
             raise ValueError(
                 "Coscientist system has already been started. "
-                "Use the step method instead!"
+                f"Use one of {self.available_actions()} instead!"
             )
 
         # Perform the initial literature review.
@@ -270,8 +292,9 @@ class CoscientistFramework:
             self.state_manager.update_literature_review(final_lit_review_state)
 
         # TODO: Make this async
-        for _ in range(max(0, n_hypotheses - self.state_manager.total_hypotheses)):
-            self.generate_new_hypothesis()
+        _ = await self.generate_new_hypotheses(
+            n_hypotheses=max(0, n_hypotheses - self.state_manager.total_hypotheses)
+        )
 
         # Move generated hypotheses to the reflection queue
         self.state_manager.advance_all_hypotheses(kind="generated")
@@ -288,10 +311,25 @@ class CoscientistFramework:
         k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
         # TODO: Figure out the right LLM for this job; should it be different from meta-review?
         # Feels like it should be fixed for the sake of consistency though
-        self.run_tournament(llm=self.config.meta_review_agent_llm, k_bracket=k_bracket)
+        self.run_tournament(k_bracket=k_bracket)
         self.run_meta_review(k_bracket=k_bracket)
 
-    async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
+    async def generate_new_hypotheses(self, n_hypotheses: int = 2) -> None:
+        """
+        Generate new hypotheses.
+        """
+        for _ in range(n_hypotheses):
+            self._generate_new_hypothesis()
+
+        # Move generated hypotheses to the reflection queue
+        self.state_manager.advance_all_hypotheses(kind="generated")
+
+        # Now run through the review queue and perform deep verification
+        self.process_reflection_queue()
+        self.state_manager.advance_all_hypotheses(kind="reviewed")
+        self.state_manager.update_proximity_graph_edges()
+
+    async def evolve_hypotheses(self, n_hypotheses: int = 2) -> None:
         """
         Takes the top (n_hypotheses // 2) hypotheses and evolves them. Also
         randomly selects (n_hypotheses // 2) hypotheses to evolve.
@@ -358,19 +396,83 @@ class CoscientistFramework:
 
         # Move the reviewed hypothesis to the EloTournament.
         self.state_manager.advance_all_hypotheses(kind="reviewed")
+        self.state_manager.update_proximity_graph_edges()
 
-    def expand_literature_review(self) -> None:
-        raise NotImplementedError("Expanding literature review is not implemented yet")
+    async def expand_literature_review(self) -> None:
+        """
+        Expands the literature review by adding more subtopics.
+        """
+        initial_lit_review_state = self.state_manager.next_literature_review_state(
+            # TODO: Make this configurable
+            max_subtopics=5
+        )
+        literature_review_agent = build_literature_review_agent(
+            self.config.literature_review_agent_llm
+        )
+        final_lit_review_state = await literature_review_agent.ainvoke(
+            initial_lit_review_state
+        )
+        self.state_manager.update_literature_review(final_lit_review_state)
 
-    def run_tournament(self, k_bracket: int = 4) -> None:
+    async def run_tournament(self, k_bracket: int = 2) -> None:
+        k_bracket = min(
+            k_bracket,
+            2 ** math.floor(math.log2(self.state_manager.num_tournament_hypotheses)),
+        )
         self.state_manager.run_tournament(
             llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
         )
 
-    def run_meta_review(self, k_bracket: int = 4) -> None:
+    async def run_meta_review(self, k_bracket: int = 2) -> None:
         initial_meta_review_state = self.state_manager.next_meta_review_state(
             top_k=k_bracket
         )
         meta_review_agent = build_meta_review_agent(self.config.meta_review_agent_llm)
         final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
         self.state_manager.update_meta_review(final_meta_review_state)
+
+    async def finish(self) -> None:
+        initial_final_report_state = self.state_manager.next_final_report_state(top_k=3)
+        final_report_agent = build_final_report_agent(
+            self.config.final_report_agent_llm
+        )
+        final_report_state = final_report_agent.invoke(initial_final_report_state)
+        self.state_manager.update_final_report(final_report_state)
+
+    @classmethod
+    def available_actions(self) -> List[str]:
+        """
+        List the available actions for the Coscientist system.
+        """
+        return [
+            "generate_new_hypotheses",
+            "evolve_hypotheses",
+            "expand_literature_review",
+            "run_tournament",
+            "run_meta_review",
+            "finish",
+        ]
+
+    async def run(self) -> Tuple[str, str]:
+        """
+        Runs the coscientist system until it is finished.
+        """
+        # Start off with 4 hypotheses
+        if not self.state_manager.is_started:
+            _ = await self.start(n_hypotheses=2)
+
+        supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
+
+        current_action = None
+        while not self.state_manager.is_finished:
+            initial_supervisor_state = self.state_manager.next_supervisor_state()
+            final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
+            current_action = final_supervisor_state["action"]
+            assert (
+                current_action in self.available_actions()
+            ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
+            print(f"Supervisor decided to {current_action}.")
+            _ = await getattr(self, current_action)()
+            self.state_manager.add_action(current_action)
+
+        return self.state_manager.final_report, self.state_manager.meta_review
