@@ -329,7 +329,7 @@ class CoscientistFramework:
         self.state_manager.advance_all_hypotheses(kind="reviewed")
         self.state_manager.update_proximity_graph_edges()
 
-    async def evolve_hypotheses(self, n_hypotheses: int = 2) -> None:
+    async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
         """
         Takes the top (n_hypotheses // 2) hypotheses and evolves them. Also
         randomly selects (n_hypotheses // 2) hypotheses to evolve.
@@ -414,7 +414,7 @@ class CoscientistFramework:
         )
         self.state_manager.update_literature_review(final_lit_review_state)
 
-    async def run_tournament(self, k_bracket: int = 2) -> None:
+    async def run_tournament(self, k_bracket: int = 8) -> None:
         k_bracket = min(
             k_bracket,
             2 ** math.floor(math.log2(self.state_manager.num_tournament_hypotheses)),
@@ -423,7 +423,7 @@ class CoscientistFramework:
             llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
         )
 
-    async def run_meta_review(self, k_bracket: int = 2) -> None:
+    async def run_meta_review(self, k_bracket: int = 8) -> None:
         initial_meta_review_state = self.state_manager.next_meta_review_state(
             top_k=k_bracket
         )
@@ -459,7 +459,7 @@ class CoscientistFramework:
         """
         # Start off with 4 hypotheses
         if not self.state_manager.is_started:
-            _ = await self.start(n_hypotheses=2)
+            _ = await self.start(n_hypotheses=4)
 
         supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
 
@@ -467,6 +467,7 @@ class CoscientistFramework:
         while not self.state_manager.is_finished:
             initial_supervisor_state = self.state_manager.next_supervisor_state()
             final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
+            self.state_manager.update_supervisor_decision(final_supervisor_state)
             current_action = final_supervisor_state["action"]
             assert (
                 current_action in self.available_actions()

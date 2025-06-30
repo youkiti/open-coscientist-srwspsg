@@ -73,11 +73,8 @@ class ProximityGraph:
             self._compute_weighted_edges(hypothesis_ids_y, hypothesis_ids_y)
             self._compute_weighted_edges(hypothesis_ids_x, hypothesis_ids_y)
 
-    def get_semantic_communities(
-        self, resolution: float = 1.0, min_weight: float = 0.85
-    ) -> List[Set[int]]:
-        """Get the partitions of the graph using the Louvain method."""
-        # Prune edges from the graph with weight less than min_weight
+    def get_pruned_graph(self, min_weight: float = 0.85) -> nx.Graph:
+        """Get a pruned graph with edges with weight less than min_weight removed."""
         pruned_graph = self.graph.copy()
         edges_to_remove = [
             (u, v)
@@ -85,7 +82,14 @@ class ProximityGraph:
             if d["weight"] < min_weight
         ]
         pruned_graph.remove_edges_from(edges_to_remove)
+        return pruned_graph
 
+    def get_semantic_communities(
+        self, resolution: float = 1.0, min_weight: float = 0.85
+    ) -> List[Set[int]]:
+        """Get the partitions of the graph using the Louvain method."""
+        # Prune edges from the graph with weight less than min_weight
+        pruned_graph = self.get_pruned_graph(min_weight)
         return nx.community.louvain_communities(pruned_graph, resolution=resolution)
 
     @property

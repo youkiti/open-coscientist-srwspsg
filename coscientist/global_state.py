@@ -79,6 +79,7 @@ class CoscientistState:
     meta_review: Optional[MetaReviewTournamentState]
     proximity_graph: Optional[ProximityGraph]
     reflection_queue: List[ParsedHypothesis]
+    supervisor_decision: Optional[SupervisorDecisionState]
     final_report: Optional[FinalReportState]
 
     # Fields need for the summary given to the supervisor agent
@@ -100,6 +101,7 @@ class CoscientistState:
         self.meta_review = None
         self.proximity_graph = None
         self.reflection_queue = []
+        self.supervisor_decision = None
         self.final_report = None
         self.actions = []
         self.cosine_similarity_trajectory = []
@@ -614,6 +616,15 @@ class CoscientistStateManager:
         self._state.cluster_count_trajectory.append(
             len(self._state.proximity_graph.get_semantic_communities())
         )
+
+    @_maybe_save(n=1)
+    def update_supervisor_decision(
+        self, supervisor_decision: SupervisorDecisionState
+    ) -> None:
+        """
+        Update the supervisor decision state.
+        """
+        self._state.supervisor_decision = supervisor_decision
 
     @_maybe_save(n=1)
     def update_final_report(self, final_report: FinalReportState) -> None:

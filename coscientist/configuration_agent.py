@@ -90,10 +90,22 @@ def _configuration_node(
     Node that processes the conversation and generates the agent's response.
     """
     prompt = load_prompt("research_config", goal=state["goal"])
+
+    # Ensure we have messages to work with
+    messages = state.get("messages", [])
+    if not messages:
+        # If no messages, create a default user message to start the conversation
+        messages = [HumanMessage(content="Please help me refine my research goal.")]
+
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", prompt), MessagesPlaceholder(variable_name="messages")]
     )
-    response = llm.invoke(prompt_template.invoke(state))
+
+    # Prepare the input for the prompt template
+    template_input = {"messages": messages}
+    formatted_prompt = prompt_template.invoke(template_input)
+
+    response = llm.invoke(formatted_prompt)
 
     # Check if this is a final goal statement
     is_complete = "FINAL GOAL:" in response.content
@@ -154,8 +166,15 @@ class ConfigurationChatManager:
 
     def _initialize_conversation(self):
         """Initialize the conversation with the research goal."""
+        # Start with an initial user message to trigger the agent's response
+        initial_message = HumanMessage(
+            content="Please help me refine my research goal and ask clarifying questions if needed."
+        )
         initial_state = ConfigurationState(
-            messages=[], goal=self.research_goal, refined_goal="", is_complete=False
+            messages=[initial_message],
+            goal=self.research_goal,
+            refined_goal="",
+            is_complete=False,
         )
         self.current_state = self.agent.invoke(initial_state, self.config)
         self.is_complete = self.current_state.get("is_complete", False)
