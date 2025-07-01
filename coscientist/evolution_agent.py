@@ -18,7 +18,7 @@ divergent from existing ones.
 that should in principle be better.
 """
 
-from typing import List, TypedDict
+from typing import TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
@@ -44,8 +44,8 @@ class OutOfTheBoxState(TypedDict):
     """
 
     goal: str
-    top_hypotheses: List[ReviewedHypothesis]
-    elo_ratings: List[float]
+    top_hypotheses: list[ReviewedHypothesis]
+    elo_ratings: list[float]
     evolved_hypothesis: ParsedHypothesis
 
 

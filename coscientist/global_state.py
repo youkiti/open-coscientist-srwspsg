@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple, Union
+from typing import Literal, Optional, Union
 
 from langchain_core.language_models import BaseChatModel
 
@@ -145,13 +145,13 @@ class CoscientistState:
         return hashlib.sha256(normalized_goal.encode("utf-8")).hexdigest()[:12]
 
     @classmethod
-    def list_all_goals(cls) -> List[Tuple[str, str]]:
+    def list_all_goals(cls) -> list[tuple[str, str]]:
         """
         List all research goals with their corresponding hash directories.
 
         Returns
         -------
-        List[tuple[str, str]]
+        list[tuple[str, str]]
             List of (original_goal, hash_directory) tuples for all existing goal directories
         """
         if not os.path.exists(_OUTPUT_DIR):
@@ -164,10 +164,10 @@ class CoscientistState:
                 goal_file = os.path.join(item_path, "goal.txt")
                 if os.path.exists(goal_file):
                     try:
-                        with open(goal_file, "r", encoding="utf-8") as f:
+                        with open(goal_file, encoding="utf-8") as f:
                             original_goal = f.read().strip()
                         goals.append((original_goal, item))
-                    except (IOError, UnicodeDecodeError):
+                    except (OSError, UnicodeDecodeError):
                         # Skip directories with unreadable goal files
                         continue
 
@@ -244,7 +244,7 @@ class CoscientistState:
     @staticmethod
     def list_checkpoints(
         directory: Optional[str] = None, goal: Optional[str] = None
-    ) -> List[str]:
+    ) -> list[str]:
         """
         List all available checkpoint files in the directory.
 
@@ -257,7 +257,7 @@ class CoscientistState:
 
         Returns
         -------
-        List[str]
+        list[str]
             List of checkpoint filepaths, sorted by modification time (newest first)
 
         Raises
@@ -387,7 +387,7 @@ class CoscientistStateManager:
         """
         return self._state.meta_reviews[-1]["result"]
 
-    def get_tournament_hypotheses_for_evolution(self) -> List[str]:
+    def get_tournament_hypotheses_for_evolution(self) -> list[str]:
         """
         Get the ranked tournament hypotheses that are qualified for evolution.
         """

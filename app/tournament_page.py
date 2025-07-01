@@ -1,5 +1,3 @@
-from typing import List
-
 import pandas as pd
 import streamlit as st
 
@@ -24,7 +22,7 @@ def display_hypothesis_details(
     hypothesis: ReviewedHypothesis,
     elo_rating: float,
     win_loss_record: dict,
-    available_uids: List[str],
+    available_uids: list[str],
 ):
     """Display detailed information about a hypothesis."""
 

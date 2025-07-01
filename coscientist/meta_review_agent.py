@@ -19,7 +19,7 @@ overview can match the style of a review paper or a grant proposal
 - Decides topics for additional research to follow up on.
 """
 
-from typing import List, Tuple, TypedDict
+from typing import TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
@@ -101,7 +101,7 @@ def _format_hypothesis_with_rating(
 
 def _get_top_hypotheses_data(
     tournament: EloTournament, top_k: int
-) -> List[Tuple[str, float]]:
+) -> list[tuple[str, float]]:
     """Helper function to get top k hypotheses sorted by ELO rating."""
     sorted_hypotheses = tournament.get_sorted_hypotheses()
     return sorted_hypotheses[:top_k]

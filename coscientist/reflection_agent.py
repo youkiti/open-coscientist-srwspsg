@@ -23,7 +23,7 @@ for the observations to review.
 import asyncio
 import os
 import re
-from typing import Dict, List, Optional, TypedDict
+from typing import Optional, TypedDict
 
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import Tone
@@ -51,9 +51,9 @@ class ReflectionState(TypedDict):
         The causal trace from hypothesis simulation (private)
     _refined_assumptions: str
         The refined assumptions output (private)
-    _parsed_assumptions: Dict[str, List[str]]
+    _parsed_assumptions: dict[str, list[str]]
         Dictionary of parsed assumptions and sub-assumptions (private)
-    _assumption_research_results: Dict[str, str]
+    _assumption_research_results: dict[str, str]
         Research results for each assumption (private)
     reviewed_hypothesis: Optional[ReviewedHypothesis]
         The final reviewed hypothesis with all verification results
@@ -64,12 +64,12 @@ class ReflectionState(TypedDict):
     passed_initial_filter: bool
     _causal_reasoning: str
     _refined_assumptions: str
-    _parsed_assumptions: Dict[str, List[str]]
-    _assumption_research_results: Dict[str, str]
+    _parsed_assumptions: dict[str, list[str]]
+    _assumption_research_results: dict[str, str]
     reviewed_hypothesis: Optional[ReviewedHypothesis]
 
 
-def parse_assumption_decomposition(markdown_text: str) -> Dict[str, List[str]]:
+def parse_assumption_decomposition(markdown_text: str) -> dict[str, list[str]]:
     """
     Parse the assumption decomposition markdown into a dictionary.
 
@@ -80,7 +80,7 @@ def parse_assumption_decomposition(markdown_text: str) -> Dict[str, List[str]]:
 
     Returns
     -------
-    Dict[str, List[str]]
+    dict[str, list[str]]
         Dictionary where keys are primary assumptions and values are lists of sub-assumptions
     """
     assumptions_dict = {}
@@ -270,7 +270,7 @@ def build_deep_verification_agent(
     review_llm: BaseChatModel,
     parallel: bool = False,
     checkpointer: Optional[BaseCheckpointSaver] = None,
-    breakpoints: Optional[List[str]] = None,
+    breakpoints: Optional[list[str]] = None,
 ):
     """
     Builds and configures a multinode LangGraph for comprehensive deep verification with research.
@@ -291,7 +291,7 @@ def build_deep_verification_agent(
         Whether to run assumption research in parallel (True) or sequentially (False)
     checkpointer: Optional[BaseCheckpointSaver], default=None
         Checkpointer to save and restore graph state for debugging and resumption
-    breakpoints: Optional[List[str]], default=None
+    breakpoints: Optional[list[str]], default=None
         List of node names to set as breakpoints (execution will pause before these nodes)
 
     Returns

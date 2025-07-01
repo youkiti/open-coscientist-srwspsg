@@ -6,7 +6,7 @@ Generation agent
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, TypedDict, Union
+from typing import TypedDict, Union
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
@@ -42,10 +42,10 @@ class IndependentConfig:
 class CollaborativeConfig:
     """Configuration for collaborative generation mode."""
 
-    agent_names: List[str]
-    agent_fields: Dict[str, str]
-    agent_reasoning_types: Dict[str, ReasoningType]
-    llms: Dict[str, BaseChatModel]
+    agent_names: list[str]
+    agent_fields: dict[str, str]
+    agent_reasoning_types: dict[str, ReasoningType]
+    llms: dict[str, BaseChatModel]
     max_turns: int = 10
 
 
@@ -172,10 +172,10 @@ def _collaborative_parsing_node(state: CollaborativeState) -> CollaborativeState
 
 
 def _build_collaborative_generation_agent(
-    agent_names: List[str],
-    agent_fields: Dict[str, str],
-    agent_reasoning_types: Dict[str, ReasoningType],
-    llms: Dict[str, BaseChatModel],
+    agent_names: list[str],
+    agent_fields: dict[str, str],
+    agent_reasoning_types: dict[str, ReasoningType],
+    llms: dict[str, BaseChatModel],
     max_turns: int = 10,
 ) -> StateGraph:
     """Build collaborative generation agent with structured output parsing."""

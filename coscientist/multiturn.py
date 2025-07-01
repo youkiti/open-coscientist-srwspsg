@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypedDict
+from typing import Any, Callable, Optional, Type, TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
@@ -9,7 +9,7 @@ from coscientist.common import load_prompt
 class MultiTurnState(TypedDict):
     """Generalized state for multi-turn agent conversations."""
 
-    transcript: List[Tuple[str, str]]
+    transcript: list[tuple[str, str]]
     turn: int
     next_agent: str
     finished: bool
@@ -19,8 +19,8 @@ def create_agent_node_fn(
     agent_name: str,
     llm: BaseChatModel,
     prompt_name: str,
-    prompt_keys_from_state: List[str],
-    **prompt_kwargs: Dict[str, Any],
+    prompt_keys_from_state: list[str],
+    **prompt_kwargs: dict[str, Any],
 ) -> Callable[[MultiTurnState], MultiTurnState]:
     """Create an agent node function."""
     assert (
@@ -49,7 +49,7 @@ def create_agent_node_fn(
 
 
 def create_moderator_node_fn(
-    agent_names: List[str],
+    agent_names: list[str],
     termination_fn: Callable[[str], bool],
     max_turns: int = 10,
 ) -> Callable[[MultiTurnState], MultiTurnState]:
@@ -79,7 +79,7 @@ def create_moderator_node_fn(
 
 def build_multi_turn_agent(
     state_type: Type[MultiTurnState],
-    agent_node_fns: Dict[str, Callable[[MultiTurnState], MultiTurnState]],
+    agent_node_fns: dict[str, Callable[[MultiTurnState], MultiTurnState]],
     moderator_node_fn: Callable[[MultiTurnState], MultiTurnState],
     post_processor_node_fn: Optional[Callable[[MultiTurnState], MultiTurnState]] = None,
 ) -> StateGraph:

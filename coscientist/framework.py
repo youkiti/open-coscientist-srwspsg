@@ -7,7 +7,6 @@ by a supervisor agent.
 import logging
 import math
 import random
-from typing import Dict, List, Set, Tuple
 
 import numpy as np
 from langchain_anthropic import ChatAnthropic
@@ -71,18 +70,18 @@ class CoscientistConfig:
     literature_review_agent_llm : BaseChatModel
         The language model for the literature review. This LLM decides on the research
         subtopics for GPTResearcher.
-    generation_agent_llms : Dict[str, BaseChatModel]
+    generation_agent_llms : dict[str, BaseChatModel]
         The language models for the generation agents
-    reflection_agent_llms : Dict[str, BaseChatModel]
+    reflection_agent_llms : dict[str, BaseChatModel]
         The language models for the reflection agents
-    evolution_agent_llms : Dict[str, BaseChatModel]
+    evolution_agent_llms : dict[str, BaseChatModel]
         The language models for the evolution agents
     meta_review_agent_llm : BaseChatModel
         The language model for the meta-review. Gemini works best because of the long
         context window that isn't severely rate limited like other providers.
     proximity_agent_embedding_model : Embeddings
         The embedding model for the proximity agent
-    specialist_fields : List[str]
+    specialist_fields : list[str]
         The fields of expertise for generation agents. This list should be expanded
         by the configuration agent.
 
@@ -93,9 +92,9 @@ class CoscientistConfig:
         literature_review_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
             "claude-sonnet-4-20250514"
         ],
-        generation_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
-        reflection_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
-        evolution_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        generation_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        reflection_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        evolution_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         meta_review_agent_llm: BaseChatModel = _CHEAPER_LLM_POOL["gemini-2.5-flash"],
         supervisor_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
             "claude-sonnet-4-20250514"
@@ -106,7 +105,7 @@ class CoscientistConfig:
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small", dimensions=256
         ),
-        specialist_fields: List[str] = ["biology"],
+        specialist_fields: list[str] = ["biology"],
     ):
         # TODO: Add functionality for overriding GPTResearcher config.
         self.literature_review_agent_llm = literature_review_agent_llm
@@ -133,43 +132,43 @@ class CoscientistFramework:
         self.config = config
         self.state_manager = state_manager
 
-    def list_generation_llm_names(self) -> List[str]:
+    def list_generation_llm_names(self) -> list[str]:
         """
         List the names of the generation agents.
         """
         return list(self.config.generation_agent_llms.keys())
 
-    def list_generation_modes(self) -> List[str]:
+    def list_generation_modes(self) -> list[str]:
         """
         List the names of the generation modes.
         """
         return ["independent", "collaborative"]
 
-    def list_reflection_llm_names(self) -> List[str]:
+    def list_reflection_llm_names(self) -> list[str]:
         """
         List the names of the reflection agents.
         """
         return list(self.config.reflection_agent_llms.keys())
 
-    def list_evolution_llm_names(self) -> List[str]:
+    def list_evolution_llm_names(self) -> list[str]:
         """
         List the names of the evolution agents.
         """
         return list(self.config.evolution_agent_llms.keys())
 
-    def list_evolution_modes(self) -> List[str]:
+    def list_evolution_modes(self) -> list[str]:
         """
         List the names of the evolution modes.
         """
         return ["evolve_from_feedback", "out_of_the_box"]
 
-    def list_specialist_fields(self) -> List[str]:
+    def list_specialist_fields(self) -> list[str]:
         """
         List the names of the specialist fields.
         """
         return self.config.specialist_fields
 
-    def list_reasoning_types(self) -> List[str]:
+    def list_reasoning_types(self) -> list[str]:
         """
         List the names of the reasoning types.
         """
@@ -177,7 +176,7 @@ class CoscientistFramework:
 
     def get_semantic_communities(
         self, resolution: float = 1.0, min_weight: float = 0.85
-    ) -> List[Set[str]]:
+    ) -> list[set[str]]:
         """
         Get the semantic communities of the hypotheses.
         """
@@ -440,7 +439,7 @@ class CoscientistFramework:
         self.state_manager.update_final_report(final_report_state)
 
     @classmethod
-    def available_actions(self) -> List[str]:
+    def available_actions(self) -> list[str]:
         """
         List the available actions for the Coscientist system.
         """
@@ -453,7 +452,7 @@ class CoscientistFramework:
             "finish",
         ]
 
-    async def run(self) -> Tuple[str, str]:
+    async def run(self) -> tuple[str, str]:
         """
         Runs the coscientist system until it is finished.
         """

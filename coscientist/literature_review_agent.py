@@ -10,7 +10,7 @@ Implementation uses LangGraph to:
 import asyncio
 import os
 import re
-from typing import List, TypedDict
+from typing import TypedDict
 
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import Tone
@@ -25,12 +25,12 @@ class LiteratureReviewState(TypedDict):
 
     goal: str
     max_subtopics: int
-    subtopics: List[str]
-    subtopic_reports: List[str]
+    subtopics: list[str]
+    subtopic_reports: list[str]
     meta_review: str
 
 
-def parse_topic_decomposition(markdown_text: str) -> List[str]:
+def parse_topic_decomposition(markdown_text: str) -> list[str]:
     """
     Parse the topic decomposition markdown into strings.
 
@@ -41,7 +41,7 @@ def parse_topic_decomposition(markdown_text: str) -> List[str]:
 
     Returns
     -------
-    List[str]
+    list[str]
         Parsed subtopics strings
     """
     # Split by subtopic headers (### Subtopic N)

@@ -1,5 +1,5 @@
 import pickle
-from typing import List, Optional
+from typing import Optional
 
 import streamlit as st
 
@@ -26,7 +26,7 @@ def load_coscientist_state_by_goal(goal: str) -> Optional[CoscientistState]:
         return None
 
 
-def get_available_states() -> List[str]:
+def get_available_states() -> list[str]:
     """Get all available research goals from the goal-based directory structure."""
     try:
         # Use the CoscientistState method to get all available goals
