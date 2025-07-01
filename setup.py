@@ -1,12 +1,12 @@
 from setuptools import find_packages, setup
 
-with open("README.md", "r", encoding="utf-8") as fh:
+with open("README.md", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
     name="open-coscientist-agents",
-    version="0.1.0",
-    author="rwxai",
+    version="0.0.1",
+    author="conradry",
     author_email="",  # Add your email if you want to include it
     description="Implementation of multi-agent system for AI co-scientist",
     long_description=long_description,

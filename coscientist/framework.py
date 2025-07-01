@@ -311,8 +311,8 @@ class CoscientistFramework:
         k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
         # TODO: Figure out the right LLM for this job; should it be different from meta-review?
         # Feels like it should be fixed for the sake of consistency though
-        self.run_tournament(k_bracket=k_bracket)
-        self.run_meta_review(k_bracket=k_bracket)
+        _ = await self.run_tournament(k_bracket=k_bracket)
+        _ = await self.run_meta_review(k_bracket=k_bracket)
 
     async def generate_new_hypotheses(self, n_hypotheses: int = 2) -> None:
         """
@@ -472,7 +472,6 @@ class CoscientistFramework:
             assert (
                 current_action in self.available_actions()
             ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
-            print(f"Supervisor decided to {current_action}.")
             _ = await getattr(self, current_action)()
             self.state_manager.add_action(current_action)
 
