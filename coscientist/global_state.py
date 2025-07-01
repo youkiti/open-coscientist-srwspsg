@@ -2,7 +2,6 @@ import hashlib
 import os
 import pickle
 import shutil
-from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -61,7 +60,6 @@ def _maybe_save(n: int = 1):
     return decorator
 
 
-@dataclass
 class CoscientistState:
     """
     Global state for the Coscientist multi-agent system.
@@ -70,27 +68,6 @@ class CoscientistState:
     persistence capabilities for the entire system state.
     """
 
-    goal: str
-    literature_review: Optional[LiteratureReviewState]
-    generated_hypotheses: List[Union[IndependentState, CollaborativeState]]
-    reviewed_hypotheses: List[ReviewedHypothesis]
-    tournament: Optional[EloTournament]
-    evolved_hypotheses: List[Union[EvolveFromFeedbackState, OutOfTheBoxState]]
-    meta_review: Optional[MetaReviewTournamentState]
-    proximity_graph: Optional[ProximityGraph]
-    reflection_queue: List[ParsedHypothesis]
-    supervisor_decision: Optional[SupervisorDecisionState]
-    final_report: Optional[FinalReportState]
-
-    # Fields need for the summary given to the supervisor agent
-    num_ranked_hypotheses_at_meta_review: int = 0
-    previous_meta_review: Optional[MetaReviewTournamentState] = None
-    actions: List[str] = field(default_factory=list)
-    cosine_similarity_trajectory: List[float] = field(default_factory=list)
-    cluster_count_trajectory: List[int] = field(default_factory=list)
-
-    _iteration: int = 0  # Hidden parameter for tracking saves
-
     def __init__(self, goal: str):
         self.goal = goal
         self.literature_review = None
@@ -98,15 +75,19 @@ class CoscientistState:
         self.reviewed_hypotheses = []
         self.tournament = None
         self.evolved_hypotheses = []
-        self.meta_review = None
+        self.meta_reviews = []
         self.proximity_graph = None
         self.reflection_queue = []
-        self.supervisor_decision = None
+        self.supervisor_decisions = []
         self.final_report = None
+
+        # Fields needed for the summary given to the supervisor agent
+        self.num_ranked_hypotheses_at_meta_review = 0
         self.actions = []
         self.cosine_similarity_trajectory = []
         self.cluster_count_trajectory = []
-        self._iteration = 0
+
+        self._iteration = 0  # Hidden parameter for tracking saves
 
         # Create goal-specific output directory
         goal_hash = self._hash_goal(goal)
@@ -376,7 +357,7 @@ class CoscientistStateManager:
         """
         # Completing the first meta-review signals that
         # the system has finished one full iteration.
-        return self._state.meta_review is not None
+        return len(self._state.meta_reviews) > 0
 
     @property
     def is_finished(self) -> bool:
@@ -404,7 +385,7 @@ class CoscientistStateManager:
         """
         Get the meta-review state.
         """
-        return self._state.meta_review["result"]
+        return self._state.meta_reviews[-1]["result"]
 
     def get_tournament_hypotheses_for_evolution(self) -> List[str]:
         """
@@ -593,10 +574,7 @@ class CoscientistStateManager:
         meta_review : MetaReviewTournamentState
             The new meta-review state
         """
-        if self._state.meta_review is not None:
-            self._state.previous_meta_review = self._state.meta_review
-
-        self._state.meta_review = meta_review
+        self._state.meta_reviews.append(meta_review)
         self._state.num_ranked_hypotheses_at_meta_review = len(
             self._state.tournament.get_win_loss_records()
         )
@@ -624,7 +602,7 @@ class CoscientistStateManager:
         """
         Update the supervisor decision state.
         """
-        self._state.supervisor_decision = supervisor_decision
+        self._state.supervisor_decisions.append(supervisor_decision)
 
     @_maybe_save(n=1)
     def update_final_report(self, final_report: FinalReportState) -> None:
@@ -767,8 +745,8 @@ class CoscientistStateManager:
             subtopics = []
             subtopic_reports = []
 
-        if self._state.meta_review is not None:
-            meta_review = self._state.meta_review["result"]
+        if self._state.meta_reviews:
+            meta_review = self._state.meta_reviews[-1]["result"]
         else:
             meta_review = ""
 
@@ -819,8 +797,8 @@ class CoscientistStateManager:
         }
 
         # Add meta_review if available
-        if self._state.meta_review is not None:
-            base_state["meta_review"] = self._state.meta_review["result"]
+        if self._state.meta_reviews:
+            base_state["meta_review"] = self._state.meta_reviews[-1]["result"]
 
         if mode == "independent":
             return IndependentState(**base_state)
@@ -921,8 +899,8 @@ class CoscientistStateManager:
             }
 
             # Add meta_review if available
-            if self._state.meta_review is not None:
-                base_state["meta_review"] = self._state.meta_review["result"]
+            if self._state.meta_reviews:
+                base_state["meta_review"] = self._state.meta_reviews[-1]["result"]
             else:
                 base_state["meta_review"] = "Not Available"
 
@@ -1005,11 +983,11 @@ class CoscientistStateManager:
         """
         # Get meta review content
         meta_review = (
-            self._state.meta_review["result"] if self._state.meta_review else ""
+            self._state.meta_reviews[-1]["result"] if self._state.meta_reviews else ""
         )
         previous_meta_review = (
-            self._state.previous_meta_review["result"]
-            if self._state.previous_meta_review
+            self._state.meta_reviews[-2]["result"]
+            if len(self._state.meta_reviews) > 1
             else ""
         )
 

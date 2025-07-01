@@ -476,4 +476,4 @@ class CoscientistFramework:
             _ = await getattr(self, current_action)()
             self.state_manager.add_action(current_action)
 
-        return self.state_manager.final_report, self.state_manager.meta_review
+        return self.state_manager.final_report, self.state_manager.meta_reviews[-1]

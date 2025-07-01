@@ -1,6 +1,4 @@
-import os
 import pickle
-from pathlib import Path
 from typing import List, Optional
 
 import streamlit as st
@@ -38,25 +36,3 @@ def get_available_states() -> List[str]:
     except Exception as e:
         st.error(f"Error getting available states: {e}")
         return []
-
-
-def get_available_states_legacy() -> List[str]:
-    """Get all available CoscientistState pickle files (legacy method)."""
-    pickle_files = []
-
-    # Check the default coscientist directory
-    coscientist_dir = os.environ.get(
-        "COSCIENTIST_DIR", os.path.expanduser("~/.coscientist")
-    )
-    if os.path.exists(coscientist_dir):
-        for root, dirs, files in os.walk(coscientist_dir):
-            for file in files:
-                if file.startswith("coscientist_state_") and file.endswith(".pkl"):
-                    pickle_files.append(os.path.join(root, file))
-
-    # Also check current directory
-    for file in Path(".").glob("*.pkl"):
-        if file.name.startswith("coscientist_state_"):
-            pickle_files.append(str(file))
-
-    return sorted(pickle_files, key=os.path.getmtime, reverse=True)

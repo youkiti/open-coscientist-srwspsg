@@ -9,7 +9,12 @@ from common import (
     load_coscientist_state_by_goal,
 )
 from configuration_page import display_configuration_page
+from final_report_page import display_final_report_page
+from literature_review_page import display_literature_review_page
+from meta_reviews_page import display_meta_reviews_page
 from proximity_page import display_proximity_graph_page
+from resume_page import display_resume_page
+from supervisor_page import display_supervisor_page
 from tournament_page import display_tournament_page
 
 st.set_page_config(page_title="Coscientist Viewer", page_icon="🧪", layout="wide")
@@ -17,7 +22,17 @@ st.set_page_config(page_title="Coscientist Viewer", page_icon="🧪", layout="wi
 # Sidebar navigation
 st.sidebar.title("🧪 Coscientist Viewer")
 page = st.sidebar.selectbox(
-    "Select Page", ["Configuration Agent", "Tournament Rankings", "Proximity Graph"]
+    "Select Page",
+    [
+        "Configuration Agent",
+        "Literature Review",
+        "Tournament Rankings",
+        "Proximity Graph",
+        "Meta-Reviews",
+        "Supervisor Decisions",
+        "Final Report",
+        "Resume from Checkpoint",
+    ],
 )
 
 
@@ -36,7 +51,14 @@ def main():
     state = None
 
     # Sidebar for file selection (only for pages that need state files)
-    if page in ["Tournament Rankings", "Proximity Graph"]:
+    if page in [
+        "Literature Review",
+        "Tournament Rankings",
+        "Proximity Graph",
+        "Meta-Reviews",
+        "Supervisor Decisions",
+        "Final Report",
+    ]:
         with st.sidebar:
             st.header("📁 Select Research Goal")
 
@@ -114,6 +136,31 @@ def main():
     # Display appropriate page based on navigation
     if page == "Configuration Agent":
         display_configuration_page()
+    elif page == "Literature Review":
+        if state is None:
+            st.info(
+                "👈 Please select a research goal or upload a Coscientist state file from the sidebar to get started."
+            )
+            st.markdown("""
+            ## Literature Review Page
+            
+            View the comprehensive literature review that forms the foundation of the research:
+            
+            1. **Research Subtopics** - see how the main research goal was systematically decomposed
+            2. **Subtopic Reports** - select any subtopic to view its detailed literature analysis
+            3. **Knowledge Foundation** - understand the scientific background informing hypothesis generation
+            
+            **What you'll see:**
+            - **Dropdown Navigation**: Select from numbered subtopics to explore different research areas
+            - **Detailed Reports**: Comprehensive literature analysis for each subtopic
+            - **Research Context**: Scientific foundation that guides hypothesis generation
+            - **Summary Statistics**: Overview of subtopics covered and reports available
+            
+            The literature review is one of the first steps in the research process, providing
+            the scientific foundation for generating well-informed, evidence-based research hypotheses.
+            """)
+        else:
+            display_literature_review_page(state)
     elif page == "Tournament Rankings":
         if state is None:
             st.info(
@@ -170,6 +217,83 @@ def main():
             """)
         else:
             display_proximity_graph_page(state)
+    elif page == "Meta-Reviews":
+        if state is None:
+            st.info(
+                "👈 Please select a research goal or upload a Coscientist state file from the sidebar to get started."
+            )
+            st.markdown("""
+            ## Meta-Reviews Page
+            
+            View the strategic analysis and review process of the research:
+            
+            1. **Reviews Timeline** - see all meta-reviews generated during the research process
+            2. **Strategic Analysis** - click on any meta-review to see the full analysis
+            3. **Research Guidance** - understand how each review guided future research directions
+            
+            **What you'll see:**
+            - **Numbered Reviews**: Latest meta-reviews appear first with sequential numbering
+            - **Strategic Analysis**: Full text of the meta-review analysis and insights
+            - **Research Context**: Tournament state and hypothesis counts at review time
+            - **Quality Assessment**: Evaluation of hypothesis performance and research progress
+            
+            Meta-reviews are generated periodically to analyze the current state of research,
+            identify patterns and gaps, and guide the supervisor agent's strategic decisions.
+            """)
+        else:
+            display_meta_reviews_page(state)
+    elif page == "Supervisor Decisions":
+        if state is None:
+            st.info(
+                "👈 Please select a research goal or upload a Coscientist state file from the sidebar to get started."
+            )
+            st.markdown("""
+            ## Supervisor Decisions Page
+            
+            View the decision-making process of the supervisor agent:
+            
+            1. **Actions Timeline** - see all actions taken by the supervisor in chronological order
+            2. **Decision Reasoning** - click on any action to see the detailed reasoning behind it
+            3. **System Context** - understand the research state that influenced each decision
+            
+            **What you'll see:**
+            - **Numbered Actions**: Latest actions appear first with sequential numbering
+            - **Decision Reasoning**: Full text of the supervisor's strategic thinking
+            - **System Metrics**: Research state, hypothesis counts, tournament progress at decision time
+            - **Recent Context**: What other actions were taken recently that influenced the decision
+            
+            The supervisor agent analyzes the research progress and decides what actions to take next,
+            such as generating new hypotheses, evolving existing ones, running tournaments, or finishing the research.
+            """)
+        else:
+            display_supervisor_page(state)
+    elif page == "Final Report":
+        if state is None:
+            st.info(
+                "👈 Please select a research goal or upload a Coscientist state file from the sidebar to get started."
+            )
+            st.markdown("""
+            ## Final Report Page
+            
+            View the comprehensive final research report generated upon completion:
+            
+            1. **Complete Analysis** - comprehensive summary of all research findings
+            2. **Top Hypotheses** - detailed review of the highest-ranked hypotheses  
+            3. **Research Conclusions** - final insights and recommendations
+            4. **Process Summary** - overview of the research methodology and evaluation
+            
+            **What you'll see:**
+            - **Final Report**: Complete research summary and conclusions
+            - **Research Statistics**: Overview of hypotheses generated, tournaments run, and key metrics
+            - **Process Completion**: Confirmation that the research process finished successfully
+            
+            The final report is generated only when the supervisor agent determines that the research
+            has achieved sufficient depth and quality, and further investigation would yield diminishing returns.
+            """)
+        else:
+            display_final_report_page(state)
+    elif page == "Resume from Checkpoint":
+        display_resume_page()
 
     # Clean up temp file if it was uploaded
     if temp_path and os.path.exists(temp_path):

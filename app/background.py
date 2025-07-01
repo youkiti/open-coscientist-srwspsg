@@ -69,12 +69,14 @@ def check_coscientist_status(goal: str) -> str:
 def get_coscientist_results(goal: str) -> tuple[str, str]:
     """Gets the results from a completed Coscientist run."""
     state = CoscientistState.load_latest(goal=goal)
-    if state and state.final_report and state.meta_review:
+    if state and state.final_report and state.meta_reviews:
         # These are TypedDicts, access by key.
         final_report_text = state.final_report.get(
             "result", "Final report not generated."
         )
-        meta_review_text = state.meta_review.get("result", "Meta review not generated.")
+        meta_review_text = state.meta_reviews[-1].get(
+            "result", "Meta review not generated."
+        )
         return final_report_text, meta_review_text
     return "Results not found.", "Results not found."
 
