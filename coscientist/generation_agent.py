@@ -237,19 +237,46 @@ def _build_collaborative_generation_agent(
 
 def _termination_fn(msg: str) -> bool:
     """
-    Check if the message contains the termination string.
+    Check if the message contains all required sections to prevent parser assertions.
+    Returns True if the message has hypothesis, predictions, and assumptions sections.
     """
-    if "#FINAL REPORT#" not in msg:
+    # Check if the message contains all required sections
+    if "#FINAL REPORT#" in msg:
+        text = msg.split("#FINAL REPORT#")[1]
+    else:
         return False
 
-    # Split the message by "#FINAL REPORT#" and get the last part
-    report_content = msg.split("#FINAL REPORT#")[-1].strip()
+    # Split the text by # to get sections
+    sections = text.split("#")
 
-    has_all_sections = all(
-        [
-            "# hypothesis" in report_content.lower(),
-            "# prediction" in report_content.lower(),
-            "# assumption" in report_content.lower(),
-        ]
-    )
-    return has_all_sections
+    # Check for required sections
+    has_hypothesis = False
+    has_predictions = False
+    has_assumptions = False
+
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        # Split section into title and content
+        lines = section.split("\n", 1)
+        if len(lines) < 2:
+            continue
+
+        title = lines[0].strip().lower()
+        content = lines[1].strip()
+
+        # Check if content is not empty
+        if not content:
+            continue
+
+        # Match section titles (case-insensitive)
+        if "hypothesis" in title:
+            has_hypothesis = True
+        elif "prediction" in title:
+            has_predictions = True
+        elif "assumption" in title:
+            has_assumptions = True
+
+    return has_hypothesis and has_predictions and has_assumptions
