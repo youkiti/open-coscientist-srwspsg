@@ -38,13 +38,7 @@ def display_final_report_page(state):
         st.info("✅ Research process completed successfully!")
 
         # Display the final report content
-        st.text_area(
-            "Final Report Content",
-            value=final_report_content,
-            height=600,
-            disabled=True,
-            label_visibility="collapsed",
-        )
+        st.markdown(final_report_content)
 
         # Show some basic statistics if available
         with st.expander("📈 Research Statistics"):

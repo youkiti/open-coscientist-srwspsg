@@ -676,31 +676,6 @@ class CoscientistStateManager:
         assert self._state.tournament is not None, "Tournament is not initialized"
         self._state.tournament.add_hypothesis(reviewed_hypothesis_state)
 
-    def advance_all_hypotheses(
-        self, kind: Literal["generated", "evolved", "reviewed"]
-    ) -> None:
-        """
-        Advance all hypotheses of a given kind to the reflection queue.
-
-        Parameters
-        ----------
-        kind : Literal["generated", "evolved", "reviewed"]
-            The type of hypothesis to advance - either "generated", "evolved", or "reviewed"
-        """
-        if kind == "generated":
-            while self._state.generated_hypotheses:
-                self.advance_hypothesis(kind="generated")
-        elif kind == "evolved":
-            while self._state.evolved_hypotheses:
-                self.advance_hypothesis(kind="evolved")
-        elif kind == "reviewed":
-            while self._state.reviewed_hypotheses:
-                self.advance_reviewed_hypothesis()
-        else:
-            raise ValueError(
-                f"Invalid kind '{kind}'. Must be 'generated', 'evolved', or 'reviewed'"
-            )
-
     @_maybe_save(n=1)
     def run_tournament(self, llm: BaseChatModel, k_bracket: int = 16) -> None:
         """

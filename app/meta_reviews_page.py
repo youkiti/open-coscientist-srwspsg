@@ -51,7 +51,7 @@ def display_meta_reviews_page(state):
 
         with reviews_container:
             # Display meta-reviews in reverse order (latest first) with numbering
-            for i, meta_review in enumerate(reversed(meta_reviews)):
+            for i, _meta_review in enumerate(reversed(meta_reviews)):
                 review_number = len(meta_reviews) - i  # Number from latest to oldest
 
                 # Create a clickable button for each meta-review
@@ -84,13 +84,7 @@ def display_meta_reviews_page(state):
             # Show the meta-review content
             meta_review_content = selected_meta_review.get("result", "")
             if meta_review_content:
-                st.text_area(
-                    "Meta-Review Content",
-                    value=meta_review_content,
-                    height=400,
-                    disabled=True,
-                    label_visibility="collapsed",
-                )
+                st.markdown(meta_review_content)
             else:
                 st.info("No content available for this meta-review.")
 

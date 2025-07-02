@@ -28,13 +28,17 @@ setup(
     ],
     python_requires=">=3.9",
     install_requires=[
-        "langchain>=0.1.0",
-        "langchain-community>=0.0.1",
-        "langgraph>=0.0.1",
-        "openai>=1.0.0",
+        "langchain>=0.3.25",
+        "langchain-community>=0.3.24",
+        "langgraph>=0.4.7",
         "typing-extensions>=4.0.0",
         "ipython>=8.0.0",  # For notebook support
         "gpt-researcher>=3.3.0",
+        "langchain-core>=0.3.65",
+        "langchain-community>=0.3.2",
+        "langchain-openai>=0.3.18",
+        "langchain-anthropic>=0.3.15",
+        "langchain-google-genai>=2.1.5",
     ],
     extras_require={
         "dev": [

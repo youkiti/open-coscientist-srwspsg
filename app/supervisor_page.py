@@ -56,7 +56,7 @@ def display_supervisor_page(state):
 
         with actions_container:
             # Display actions in reverse order (latest first) with numbering
-            for i, (action, decision) in enumerate(
+            for i, (action, _decision) in enumerate(
                 zip(reversed(actions), reversed(supervisor_decisions))
             ):
                 action_number = len(actions) - i  # Number from latest to oldest
@@ -95,13 +95,7 @@ def display_supervisor_page(state):
                 and selected_decision["decision_reasoning"]
             ):
                 st.markdown("**Reasoning:**")
-                st.text_area(
-                    "Decision Reasoning",
-                    value=selected_decision["decision_reasoning"],
-                    height=300,
-                    disabled=True,
-                    label_visibility="collapsed",
-                )
+                st.markdown(selected_decision["decision_reasoning"])
             else:
                 st.info("No detailed reasoning available for this action.")
 

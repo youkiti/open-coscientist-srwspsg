@@ -195,7 +195,7 @@ def _build_collaborative_generation_agent(
 
     # Create moderator and post-processor
     moderator_fn = multiturn.create_moderator_node_fn(
-        agent_names, lambda msg: "#FINAL REPORT#" in msg, max_turns
+        agent_names, _termination_fn, max_turns
     )
 
     # Build the base multi-turn agent graph (without compiling it yet)
@@ -233,3 +233,23 @@ def _build_collaborative_generation_agent(
     base_graph.set_entry_point(list(agent_node_fns.keys())[0])
 
     return base_graph.compile()
+
+
+def _termination_fn(msg: str) -> bool:
+    """
+    Check if the message contains the termination string.
+    """
+    if "#FINAL REPORT#" not in msg:
+        return False
+
+    # Split the message by "#FINAL REPORT#" and get the last part
+    report_content = msg.split("#FINAL REPORT#")[-1].strip()
+
+    has_all_sections = all(
+        [
+            "# hypothesis" in report_content.lower(),
+            "# prediction" in report_content.lower(),
+            "# assumption" in report_content.lower(),
+        ]
+    )
+    return has_all_sections

@@ -105,7 +105,7 @@ class CoscientistConfig:
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small", dimensions=256
         ),
-        specialist_fields: list[str] = ["biology"],
+        specialist_fields: list[str] | None = None,
     ):
         # TODO: Add functionality for overriding GPTResearcher config.
         self.literature_review_agent_llm = literature_review_agent_llm
@@ -116,7 +116,10 @@ class CoscientistConfig:
         self.supervisor_agent_llm = supervisor_agent_llm
         self.proximity_agent_embedding_model = proximity_agent_embedding_model
         self.final_report_agent_llm = final_report_agent_llm
-        self.specialist_fields = specialist_fields
+        if specialist_fields is None:
+            self.specialist_fields = ["biology"]
+        else:
+            self.specialist_fields = specialist_fields
 
 
 class CoscientistFramework:
@@ -208,6 +211,7 @@ class CoscientistFramework:
                 self.state_manager.add_reviewed_hypothesis(
                     final_reflection_state["reviewed_hypothesis"]
                 )
+                self.state_manager.advance_hypothesis(kind="reviewed")
 
     def _generate_new_hypothesis(self) -> None:
         """
@@ -239,9 +243,7 @@ class CoscientistFramework:
             ]
             config = CollaborativeConfig(
                 agent_names=agent_names,
-                agent_fields={
-                    name: field for name, field in zip(agent_names, specialist_fields)
-                },
+                agent_fields=dict(zip(agent_names, specialist_fields)),
                 agent_reasoning_types={
                     name: getattr(ReasoningType, reasoning_type)
                     for name, reasoning_type in zip(agent_names, reasoning_types)
@@ -295,15 +297,6 @@ class CoscientistFramework:
             n_hypotheses=max(0, n_hypotheses - self.state_manager.total_hypotheses)
         )
 
-        # Move generated hypotheses to the reflection queue
-        self.state_manager.advance_all_hypotheses(kind="generated")
-
-        # Now run through the review queue and perform deep verification
-        self.process_reflection_queue()
-
-        # Move the reviewed hypothesis to the EloTournament.
-        self.state_manager.advance_all_hypotheses(kind="reviewed")
-
         # Run the EloTournament
         # The top k for the bracket should the nearest power of
         # 2 less than the number of hypotheses and no more than 16.
@@ -319,13 +312,10 @@ class CoscientistFramework:
         """
         for _ in range(n_hypotheses):
             self._generate_new_hypothesis()
-
-        # Move generated hypotheses to the reflection queue
-        self.state_manager.advance_all_hypotheses(kind="generated")
+            self.state_manager.advance_hypothesis(kind="generated")
 
         # Now run through the review queue and perform deep verification
         self.process_reflection_queue()
-        self.state_manager.advance_all_hypotheses(kind="reviewed")
         self.state_manager.update_proximity_graph_edges()
 
     async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
@@ -368,6 +358,7 @@ class CoscientistFramework:
             self.state_manager.add_evolved_hypothesis(
                 final_evolution_state["evolved_hypothesis"]
             )
+            self.state_manager.advance_hypothesis(kind="evolved")
 
         # Run one round instance of evolving the top ranked hypotheses
         # into something new
@@ -385,7 +376,7 @@ class CoscientistFramework:
         )
 
         # Move the evolved hypotheses to the reflection queue
-        self.state_manager.advance_all_hypotheses(kind="evolved")
+        self.state_manager.advance_hypothesis(kind="evolved")
 
         # TODO: Do we have to worry about reflecting on hypotheses that are
         # already in the reflection queue but weren't advanced yet?
@@ -394,7 +385,6 @@ class CoscientistFramework:
         self.process_reflection_queue()
 
         # Move the reviewed hypothesis to the EloTournament.
-        self.state_manager.advance_all_hypotheses(kind="reviewed")
         self.state_manager.update_proximity_graph_edges()
 
     async def expand_literature_review(self) -> None:
@@ -466,12 +456,12 @@ class CoscientistFramework:
         while not self.state_manager.is_finished:
             initial_supervisor_state = self.state_manager.next_supervisor_state()
             final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
-            self.state_manager.update_supervisor_decision(final_supervisor_state)
             current_action = final_supervisor_state["action"]
             assert (
                 current_action in self.available_actions()
             ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
-            _ = await getattr(self, current_action)()
+            self.state_manager.update_supervisor_decision(final_supervisor_state)
             self.state_manager.add_action(current_action)
+            _ = await getattr(self, current_action)()
 
         return self.state_manager.final_report, self.state_manager.meta_reviews[-1]
