@@ -4,8 +4,6 @@ Proximity agent
 - Calculates similarity between hypotheses and builds a graph
 """
 
-from typing import List, Set
-
 import networkx as nx
 import numpy as np
 from langchain_openai import OpenAIEmbeddings
@@ -34,13 +32,12 @@ class ProximityGraph:
         )
 
     def _compute_weighted_edges(
-        self, hypothesis_ids_x: List[int], hypothesis_ids_y: List[int]
+        self, hypothesis_ids_x: list[int], hypothesis_ids_y: list[int]
     ):
         """Compute the weighted edges between two sets of hypotheses."""
         embeddings_x = [self.graph.nodes[id]["embedding"] for id in hypothesis_ids_x]
         embeddings_y = [self.graph.nodes[id]["embedding"] for id in hypothesis_ids_y]
         similarities = cosine_similarity(embeddings_x, embeddings_y)
-        print(f"Similarities: {similarities}")
         # return similarities
         # Add the edges with weights to the graph
         for i, id_x in enumerate(hypothesis_ids_x):
@@ -73,11 +70,8 @@ class ProximityGraph:
             self._compute_weighted_edges(hypothesis_ids_y, hypothesis_ids_y)
             self._compute_weighted_edges(hypothesis_ids_x, hypothesis_ids_y)
 
-    def get_semantic_communities(
-        self, resolution: float = 1.0, min_weight: float = 0.85
-    ) -> List[Set[int]]:
-        """Get the partitions of the graph using the Louvain method."""
-        # Prune edges from the graph with weight less than min_weight
+    def get_pruned_graph(self, min_weight: float = 0.85) -> nx.Graph:
+        """Get a pruned graph with edges with weight less than min_weight removed."""
         pruned_graph = self.graph.copy()
         edges_to_remove = [
             (u, v)
@@ -85,7 +79,14 @@ class ProximityGraph:
             if d["weight"] < min_weight
         ]
         pruned_graph.remove_edges_from(edges_to_remove)
+        return pruned_graph
 
+    def get_semantic_communities(
+        self, resolution: float = 1.0, min_weight: float = 0.85
+    ) -> list[set[int]]:
+        """Get the partitions of the graph using the Louvain method."""
+        # Prune edges from the graph with weight less than min_weight
+        pruned_graph = self.get_pruned_graph(min_weight)
         return nx.community.louvain_communities(pruned_graph, resolution=resolution)
 
     @property

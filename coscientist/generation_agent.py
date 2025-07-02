@@ -6,7 +6,7 @@ Generation agent
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, TypedDict, Union
+from typing import TypedDict, Union
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
@@ -42,10 +42,10 @@ class IndependentConfig:
 class CollaborativeConfig:
     """Configuration for collaborative generation mode."""
 
-    agent_names: List[str]
-    agent_fields: Dict[str, str]
-    agent_reasoning_types: Dict[str, ReasoningType]
-    llms: Dict[str, BaseChatModel]
+    agent_names: list[str]
+    agent_fields: dict[str, str]
+    agent_reasoning_types: dict[str, ReasoningType]
+    llms: dict[str, BaseChatModel]
     max_turns: int = 10
 
 
@@ -172,10 +172,10 @@ def _collaborative_parsing_node(state: CollaborativeState) -> CollaborativeState
 
 
 def _build_collaborative_generation_agent(
-    agent_names: List[str],
-    agent_fields: Dict[str, str],
-    agent_reasoning_types: Dict[str, ReasoningType],
-    llms: Dict[str, BaseChatModel],
+    agent_names: list[str],
+    agent_fields: dict[str, str],
+    agent_reasoning_types: dict[str, ReasoningType],
+    llms: dict[str, BaseChatModel],
     max_turns: int = 10,
 ) -> StateGraph:
     """Build collaborative generation agent with structured output parsing."""
@@ -195,7 +195,7 @@ def _build_collaborative_generation_agent(
 
     # Create moderator and post-processor
     moderator_fn = multiturn.create_moderator_node_fn(
-        agent_names, lambda msg: "#FINAL REPORT#" in msg, max_turns
+        agent_names, _termination_fn, max_turns
     )
 
     # Build the base multi-turn agent graph (without compiling it yet)
@@ -233,3 +233,50 @@ def _build_collaborative_generation_agent(
     base_graph.set_entry_point(list(agent_node_fns.keys())[0])
 
     return base_graph.compile()
+
+
+def _termination_fn(msg: str) -> bool:
+    """
+    Check if the message contains all required sections to prevent parser assertions.
+    Returns True if the message has hypothesis, predictions, and assumptions sections.
+    """
+    # Check if the message contains all required sections
+    if "#FINAL REPORT#" in msg:
+        text = msg.split("#FINAL REPORT#")[1]
+    else:
+        return False
+
+    # Split the text by # to get sections
+    sections = text.split("#")
+
+    # Check for required sections
+    has_hypothesis = False
+    has_predictions = False
+    has_assumptions = False
+
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        # Split section into title and content
+        lines = section.split("\n", 1)
+        if len(lines) < 2:
+            continue
+
+        title = lines[0].strip().lower()
+        content = lines[1].strip()
+
+        # Check if content is not empty
+        if not content:
+            continue
+
+        # Match section titles (case-insensitive)
+        if "hypothesis" in title:
+            has_hypothesis = True
+        elif "prediction" in title:
+            has_predictions = True
+        elif "assumption" in title:
+            has_assumptions = True
+
+    return has_hypothesis and has_predictions and has_assumptions

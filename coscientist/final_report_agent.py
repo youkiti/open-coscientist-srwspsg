@@ -12,7 +12,7 @@ More details:
 - Generates a structured scientific report suitable for domain experts
 """
 
-from typing import List, Tuple, TypedDict
+from typing import TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
@@ -80,7 +80,7 @@ def _format_detailed_hypothesis(hypothesis: ReviewedHypothesis, rating: float) -
 
 def _get_top_hypotheses_data(
     tournament: EloTournament, top_k: int
-) -> List[Tuple[str, float]]:
+) -> list[tuple[str, float]]:
     """Helper function to get top k hypotheses sorted by ELO rating."""
     sorted_hypotheses = tournament.get_sorted_hypotheses()
     return sorted_hypotheses[:top_k]

@@ -1,6 +1,5 @@
 import os
 import re
-from typing import List
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -90,7 +89,7 @@ def parse_hypothesis_markdown(markdown_text: str) -> ParsedHypothesis:
     )
 
 
-def _parse_numbered_list(content: str) -> List[str]:
+def _parse_numbered_list(content: str) -> list[str]:
     """
     Parse a numbered list from text content into a list of strings.
 
@@ -101,7 +100,7 @@ def _parse_numbered_list(content: str) -> List[str]:
 
     Returns
     -------
-    List[str]
+    list[str]
         List of individual items with numbering removed
     """
     if not content.strip():

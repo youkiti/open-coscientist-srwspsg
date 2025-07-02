@@ -7,7 +7,6 @@ by a supervisor agent.
 import logging
 import math
 import random
-from typing import Dict, List, Set, Tuple
 
 import numpy as np
 from langchain_anthropic import ChatAnthropic
@@ -71,18 +70,18 @@ class CoscientistConfig:
     literature_review_agent_llm : BaseChatModel
         The language model for the literature review. This LLM decides on the research
         subtopics for GPTResearcher.
-    generation_agent_llms : Dict[str, BaseChatModel]
+    generation_agent_llms : dict[str, BaseChatModel]
         The language models for the generation agents
-    reflection_agent_llms : Dict[str, BaseChatModel]
+    reflection_agent_llms : dict[str, BaseChatModel]
         The language models for the reflection agents
-    evolution_agent_llms : Dict[str, BaseChatModel]
+    evolution_agent_llms : dict[str, BaseChatModel]
         The language models for the evolution agents
     meta_review_agent_llm : BaseChatModel
         The language model for the meta-review. Gemini works best because of the long
         context window that isn't severely rate limited like other providers.
     proximity_agent_embedding_model : Embeddings
         The embedding model for the proximity agent
-    specialist_fields : List[str]
+    specialist_fields : list[str]
         The fields of expertise for generation agents. This list should be expanded
         by the configuration agent.
 
@@ -93,9 +92,9 @@ class CoscientistConfig:
         literature_review_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
             "claude-sonnet-4-20250514"
         ],
-        generation_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
-        reflection_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
-        evolution_agent_llms: Dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        generation_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        reflection_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
+        evolution_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         meta_review_agent_llm: BaseChatModel = _CHEAPER_LLM_POOL["gemini-2.5-flash"],
         supervisor_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
             "claude-sonnet-4-20250514"
@@ -106,7 +105,7 @@ class CoscientistConfig:
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small", dimensions=256
         ),
-        specialist_fields: List[str] = ["biology"],
+        specialist_fields: list[str] | None = None,
     ):
         # TODO: Add functionality for overriding GPTResearcher config.
         self.literature_review_agent_llm = literature_review_agent_llm
@@ -117,7 +116,10 @@ class CoscientistConfig:
         self.supervisor_agent_llm = supervisor_agent_llm
         self.proximity_agent_embedding_model = proximity_agent_embedding_model
         self.final_report_agent_llm = final_report_agent_llm
-        self.specialist_fields = specialist_fields
+        if specialist_fields is None:
+            self.specialist_fields = ["biology"]
+        else:
+            self.specialist_fields = specialist_fields
 
 
 class CoscientistFramework:
@@ -133,43 +135,43 @@ class CoscientistFramework:
         self.config = config
         self.state_manager = state_manager
 
-    def list_generation_llm_names(self) -> List[str]:
+    def list_generation_llm_names(self) -> list[str]:
         """
         List the names of the generation agents.
         """
         return list(self.config.generation_agent_llms.keys())
 
-    def list_generation_modes(self) -> List[str]:
+    def list_generation_modes(self) -> list[str]:
         """
         List the names of the generation modes.
         """
         return ["independent", "collaborative"]
 
-    def list_reflection_llm_names(self) -> List[str]:
+    def list_reflection_llm_names(self) -> list[str]:
         """
         List the names of the reflection agents.
         """
         return list(self.config.reflection_agent_llms.keys())
 
-    def list_evolution_llm_names(self) -> List[str]:
+    def list_evolution_llm_names(self) -> list[str]:
         """
         List the names of the evolution agents.
         """
         return list(self.config.evolution_agent_llms.keys())
 
-    def list_evolution_modes(self) -> List[str]:
+    def list_evolution_modes(self) -> list[str]:
         """
         List the names of the evolution modes.
         """
         return ["evolve_from_feedback", "out_of_the_box"]
 
-    def list_specialist_fields(self) -> List[str]:
+    def list_specialist_fields(self) -> list[str]:
         """
         List the names of the specialist fields.
         """
         return self.config.specialist_fields
 
-    def list_reasoning_types(self) -> List[str]:
+    def list_reasoning_types(self) -> list[str]:
         """
         List the names of the reasoning types.
         """
@@ -177,7 +179,7 @@ class CoscientistFramework:
 
     def get_semantic_communities(
         self, resolution: float = 1.0, min_weight: float = 0.85
-    ) -> List[Set[str]]:
+    ) -> list[set[str]]:
         """
         Get the semantic communities of the hypotheses.
         """
@@ -209,6 +211,7 @@ class CoscientistFramework:
                 self.state_manager.add_reviewed_hypothesis(
                     final_reflection_state["reviewed_hypothesis"]
                 )
+                self.state_manager.advance_hypothesis(kind="reviewed")
 
     def _generate_new_hypothesis(self) -> None:
         """
@@ -240,9 +243,7 @@ class CoscientistFramework:
             ]
             config = CollaborativeConfig(
                 agent_names=agent_names,
-                agent_fields={
-                    name: field for name, field in zip(agent_names, specialist_fields)
-                },
+                agent_fields=dict(zip(agent_names, specialist_fields)),
                 agent_reasoning_types={
                     name: getattr(ReasoningType, reasoning_type)
                     for name, reasoning_type in zip(agent_names, reasoning_types)
@@ -296,23 +297,14 @@ class CoscientistFramework:
             n_hypotheses=max(0, n_hypotheses - self.state_manager.total_hypotheses)
         )
 
-        # Move generated hypotheses to the reflection queue
-        self.state_manager.advance_all_hypotheses(kind="generated")
-
-        # Now run through the review queue and perform deep verification
-        self.process_reflection_queue()
-
-        # Move the reviewed hypothesis to the EloTournament.
-        self.state_manager.advance_all_hypotheses(kind="reviewed")
-
         # Run the EloTournament
         # The top k for the bracket should the nearest power of
         # 2 less than the number of hypotheses and no more than 16.
         k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
         # TODO: Figure out the right LLM for this job; should it be different from meta-review?
         # Feels like it should be fixed for the sake of consistency though
-        self.run_tournament(k_bracket=k_bracket)
-        self.run_meta_review(k_bracket=k_bracket)
+        _ = await self.run_tournament(k_bracket=k_bracket)
+        _ = await self.run_meta_review(k_bracket=k_bracket)
 
     async def generate_new_hypotheses(self, n_hypotheses: int = 2) -> None:
         """
@@ -320,16 +312,13 @@ class CoscientistFramework:
         """
         for _ in range(n_hypotheses):
             self._generate_new_hypothesis()
-
-        # Move generated hypotheses to the reflection queue
-        self.state_manager.advance_all_hypotheses(kind="generated")
+            self.state_manager.advance_hypothesis(kind="generated")
 
         # Now run through the review queue and perform deep verification
         self.process_reflection_queue()
-        self.state_manager.advance_all_hypotheses(kind="reviewed")
         self.state_manager.update_proximity_graph_edges()
 
-    async def evolve_hypotheses(self, n_hypotheses: int = 2) -> None:
+    async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
         """
         Takes the top (n_hypotheses // 2) hypotheses and evolves them. Also
         randomly selects (n_hypotheses // 2) hypotheses to evolve.
@@ -369,6 +358,7 @@ class CoscientistFramework:
             self.state_manager.add_evolved_hypothesis(
                 final_evolution_state["evolved_hypothesis"]
             )
+            self.state_manager.advance_hypothesis(kind="evolved")
 
         # Run one round instance of evolving the top ranked hypotheses
         # into something new
@@ -386,7 +376,7 @@ class CoscientistFramework:
         )
 
         # Move the evolved hypotheses to the reflection queue
-        self.state_manager.advance_all_hypotheses(kind="evolved")
+        self.state_manager.advance_hypothesis(kind="evolved")
 
         # TODO: Do we have to worry about reflecting on hypotheses that are
         # already in the reflection queue but weren't advanced yet?
@@ -395,7 +385,6 @@ class CoscientistFramework:
         self.process_reflection_queue()
 
         # Move the reviewed hypothesis to the EloTournament.
-        self.state_manager.advance_all_hypotheses(kind="reviewed")
         self.state_manager.update_proximity_graph_edges()
 
     async def expand_literature_review(self) -> None:
@@ -414,7 +403,7 @@ class CoscientistFramework:
         )
         self.state_manager.update_literature_review(final_lit_review_state)
 
-    async def run_tournament(self, k_bracket: int = 2) -> None:
+    async def run_tournament(self, k_bracket: int = 8) -> None:
         k_bracket = min(
             k_bracket,
             2 ** math.floor(math.log2(self.state_manager.num_tournament_hypotheses)),
@@ -423,7 +412,7 @@ class CoscientistFramework:
             llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
         )
 
-    async def run_meta_review(self, k_bracket: int = 2) -> None:
+    async def run_meta_review(self, k_bracket: int = 8) -> None:
         initial_meta_review_state = self.state_manager.next_meta_review_state(
             top_k=k_bracket
         )
@@ -440,7 +429,7 @@ class CoscientistFramework:
         self.state_manager.update_final_report(final_report_state)
 
     @classmethod
-    def available_actions(self) -> List[str]:
+    def available_actions(self) -> list[str]:
         """
         List the available actions for the Coscientist system.
         """
@@ -453,13 +442,13 @@ class CoscientistFramework:
             "finish",
         ]
 
-    async def run(self) -> Tuple[str, str]:
+    async def run(self) -> tuple[str, str]:
         """
         Runs the coscientist system until it is finished.
         """
         # Start off with 4 hypotheses
         if not self.state_manager.is_started:
-            _ = await self.start(n_hypotheses=2)
+            _ = await self.start(n_hypotheses=4)
 
         supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
 
@@ -471,8 +460,8 @@ class CoscientistFramework:
             assert (
                 current_action in self.available_actions()
             ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
-            print(f"Supervisor decided to {current_action}.")
-            _ = await getattr(self, current_action)()
+            self.state_manager.update_supervisor_decision(final_supervisor_state)
             self.state_manager.add_action(current_action)
+            _ = await getattr(self, current_action)()
 
-        return self.state_manager.final_report, self.state_manager.meta_review
+        return self.state_manager.final_report, self.state_manager.meta_reviews[-1]

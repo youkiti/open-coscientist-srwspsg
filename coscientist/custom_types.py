@@ -1,5 +1,4 @@
 import uuid
-from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -12,10 +11,10 @@ class ParsedHypothesis(BaseModel):
         description="Unique identifier for the hypothesis",
     )
     hypothesis: str = Field(description="The main hypothesis statement")
-    predictions: List[str] = Field(
+    predictions: list[str] = Field(
         description="A list of predictions that could be tested to disprove the hypothesis"
     )
-    assumptions: List[str] = Field(
+    assumptions: list[str] = Field(
         description="A list of assumptions that are implicit or explicit in the hypothesis"
     )
     parent_uid: str | None = Field(
@@ -28,7 +27,7 @@ class ReviewedHypothesis(ParsedHypothesis):
     """Structured output for reviewed hypothesis."""
 
     causal_reasoning: str = Field(description="The causal reasoning for the hypothesis")
-    assumption_research_results: Dict[str, str] = Field(
+    assumption_research_results: dict[str, str] = Field(
         description="A dictionary of assumption research results"
     )
     verification_result: str = Field(

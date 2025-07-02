@@ -21,7 +21,7 @@ queue.
 
 import itertools  # Add itertools for combinations
 import statistics
-from typing import Dict, List, Optional, Tuple  # Add Optional
+from typing import Optional  # Add Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -43,8 +43,8 @@ class DebateState(multiturn.MultiTurnState):
 
 
 def _build_debate_agent(
-    agent_names: List[str],
-    llms: Dict[str, BaseChatModel],
+    agent_names: list[str],
+    llms: dict[str, BaseChatModel],
     max_turns: int = 10,
 ) -> DebateState:
     """Build collaborative generation agent."""
@@ -73,14 +73,14 @@ def _build_debate_agent(
     return multiturn.build_multi_turn_agent(DebateState, agent_node_fns, moderator_fn)
 
 
-def calculate_expected_score(rating1: float, rating2: float) -> Tuple[float, float]:
+def calculate_expected_score(rating1: float, rating2: float) -> tuple[float, float]:
     """Calculates the expected scores for two players based on their ELO ratings."""
     expected1 = 1 / (1 + 10 ** ((rating2 - rating1) / 400))
     expected2 = 1 / (1 + 10 ** ((rating1 - rating2) / 400))
     return expected1, expected2
 
 
-def update_elo(rating1: float, rating2: float, winner: int) -> Tuple[float, float]:
+def update_elo(rating1: float, rating2: float, winner: int) -> tuple[float, float]:
     """
     Updates the ELO ratings of two players based on the match outcome.
 
@@ -118,11 +118,11 @@ class EloTournament:
 
     def __init__(self, goal: str):
         self.goal = goal
-        self.hypotheses: Dict[str, ReviewedHypothesis] = {}  # id -> Hypothesis object
-        self.ratings: Dict[str, float] = {}  # id -> ELO rating
-        self.match_history: Dict[Tuple[int, int, int], RankingMatchResult] = {}
+        self.hypotheses: dict[str, ReviewedHypothesis] = {}  # id -> Hypothesis object
+        self.ratings: dict[str, float] = {}  # id -> ELO rating
+        self.match_history: dict[tuple[int, int, int], RankingMatchResult] = {}
 
-        self._past_tournament_ratings: List[List[float]] = []
+        self._past_tournament_ratings: list[list[float]] = []
 
     def add_hypothesis(
         self, hypothesis: ReviewedHypothesis, initial_rating: float = DEFAULT_ELO
@@ -134,7 +134,7 @@ class EloTournament:
         else:
             raise ValueError(f"Hypothesis {hypothesis.uid} already exists.")
 
-    def get_sorted_hypotheses(self) -> List[Tuple[str, float]]:
+    def get_sorted_hypotheses(self) -> list[tuple[str, float]]:
         """Returns hypotheses sorted by ELO rating (descending)."""
         return sorted(self.ratings.items(), key=lambda item: item[1], reverse=True)
 
@@ -144,7 +144,7 @@ class EloTournament:
         hypo2: ReviewedHypothesis,
         prompt_name: str,
         llm: BaseChatModel,
-    ) -> Tuple[int, str]:
+    ) -> tuple[int, str]:
         """
         Uses the LLM with a specific prompt to determine the winner between two hypotheses.
 
@@ -159,7 +159,7 @@ class EloTournament:
 
         Returns
         -------
-        Tuple[int, str]
+        tuple[int, str]
             - 1 if hypo1 wins, 2 if hypo2 wins, None if winner cannot be determined.
             - The response text from the LLM.
         """
@@ -326,13 +326,13 @@ class EloTournament:
         self.run_bracket_stage(llm, k=k_bracket)
         self._past_tournament_ratings.append(list(self.ratings.values()))
 
-    def get_win_loss_records(self) -> Dict[str, Dict[str, int]]:
+    def get_win_loss_records(self) -> dict[str, dict[str, int]]:
         """
         Returns a dictionary containing win-loss records for each hypothesis.
 
         Returns
         -------
-        Dict[str, Dict[str, int]]
+        dict[str, dict[str, int]]
             A dictionary where each key is a hypothesis ID and the value is another dictionary
             containing 'wins' and 'losses' counts.
         """
