@@ -211,7 +211,7 @@ class CoscientistFramework:
                 self.state_manager.add_reviewed_hypothesis(
                     final_reflection_state["reviewed_hypothesis"]
                 )
-                self.state_manager.advance_hypothesis(kind="reviewed")
+                self.state_manager.advance_reviewed_hypothesis()
 
     def _generate_new_hypothesis(self) -> None:
         """
