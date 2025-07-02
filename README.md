@@ -59,7 +59,7 @@ export GOOGLE_API_KEY="your-google-key"
 
 Set up your API key for Tavily search:
 ```bash
-export TAVILY_API_KEY='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'
+export TAVILY_API_KEY='your-api-key'
 ```
 
 Optional, but highly recommended for monitoring and debugging, set up API keys for LangSmith:
