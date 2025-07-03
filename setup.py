@@ -33,7 +33,7 @@ setup(
         "langgraph>=0.4.7",
         "typing-extensions>=4.0.0",
         "ipython>=8.0.0",  # For notebook support
-        "gpt-researcher>=3.3.0",
+        "gpt-researcher @ git+https://github.com/assafelovic/gpt-researcher@v3.3.0",
         "langchain-core>=0.3.65",
         "langchain-community>=0.3.2",
         "langchain-openai>=0.3.18",
