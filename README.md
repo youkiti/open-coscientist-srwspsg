@@ -2,7 +2,7 @@
 
 A comprehensive multi-agent system for AI-driven scientific discovery based on Google DeepMind's [AI co-scientist](https://arxiv.org/abs/2502.18864), built with LangGraph and [GPT Researcher](https://github.com/assafelovic/gpt-researcher). The aim is for this system to accelerate scientific research through collaborative AI agents that generate, critique, rank, and evolve scientific hypotheses using tournament-style competition.
 
-This implementation makes use of all best reasoning models from frontier labs: `Gemini 2.5 Pro`, `Claude Sonnet 4`, and `o3`.
+This implementation uses `Gemini 2.5 Pro`, `Claude Sonnet 4`, and `o3` in collaboration and competition.
 
 ![App Demo](assets/app_demo.gif)
 
