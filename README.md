@@ -88,6 +88,7 @@ Features include:
 
 ### Start a research run in Python
 ```python
+import asyncio
 from coscientist.framework import CoscientistConfig, CoscientistFramework
 from coscientist.global_state import CoscientistState, CoscientistStateManager
 
@@ -98,7 +99,7 @@ config = CoscientistConfig()
 state_manager = CoscientistStateManager(initial_state)
 cosci = CoscientistFramework(config, state_manager)
 
-final_report, final_meta_review = await cosci.run()
+final_report, final_meta_review = asyncio.run(cosci.run())
 ```
 
 ## Performance & Scalability
