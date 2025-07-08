@@ -7,7 +7,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 # Import the background process functions
-from app.background import (
+from background import (
     check_coscientist_status,
     cleanup_coscientist_run,
     coscientist_process_target,
