@@ -30,7 +30,10 @@ pip install -e .[dev]
 # Launch Streamlit web interface
 cd app
 pip install -r viewer_requirements.txt
-streamlit run tournament_viewer.py
+streamlit run tournament_viewer.py --server.address 0.0.0.0
+
+# NOTE: --server.address 0.0.0.0 prevents localhost ERR_EMPTY_RESPONSE issues
+# by ensuring proper IPv4 binding on all interfaces
 
 # Run a research session programmatically
 python -c "

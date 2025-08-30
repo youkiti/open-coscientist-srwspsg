@@ -74,8 +74,10 @@ Launch the interactive dashboard:
 ```bash
 cd app
 pip install -r viewer_requirements.txt
-streamlit run tournament_viewer.py
+streamlit run tournament_viewer.py --server.address 0.0.0.0
 ```
+
+> **Note**: The `--server.address 0.0.0.0` flag ensures proper localhost binding on all systems. If you experience `ERR_EMPTY_RESPONSE` with localhost, this resolves IPv4/IPv6 binding conflicts.
 
 Features include:
 - **Configuration Agent**: Set up research parameters
