@@ -14,6 +14,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from datetime import datetime
 
 from coscientist.openai_client import create_openai_responses_client
 from coscientist.progress_tracker import ProgressTracker, ProgressPhase, ProgressStatus
@@ -31,6 +32,9 @@ from coscientist.meta_review_agent import build_meta_review_agent
 from coscientist.reasoning_types import ReasoningType
 from coscientist.reflection_agent import build_deep_verification_agent
 from coscientist.supervisor_agent import build_supervisor_agent
+
+# Configure logger for framework
+framework_logger = logging.getLogger('coscientist.framework')
 
 # Generally reasoning models are better suited for the scientific reasoning
 # tasks entailed by the Coscientist system.
@@ -159,6 +163,10 @@ class CoscientistFramework:
             ProgressPhase.INITIALIZING,
             "Framework initialized, ready to begin research"
         )
+        
+        framework_logger.info(f"Initialized CoscientistFramework for goal: {state_manager.goal}")
+        framework_logger.debug(f"Output directory: {state_manager.output_dir}")
+        framework_logger.debug(f"Configuration: LLMs loaded for all agents")
 
     def list_generation_llm_names(self) -> list[str]:
         """
@@ -296,8 +304,10 @@ class CoscientistFramework:
         Starts the Coscientist system with a fixed number of initial
         hypotheses.
         """
+        framework_logger.info(f"Starting Coscientist system with {n_hypotheses} initial hypotheses")
         assert n_hypotheses >= 2, "Must generate at least two hypotheses to start"
         if self.state_manager.is_started:
+            framework_logger.warning("Attempted to start already-started system")
             raise ValueError(
                 "Coscientist system has already been started. "
                 f"Use one of {self.available_actions()} instead!"
@@ -306,11 +316,13 @@ class CoscientistFramework:
         try:
             # Perform the initial literature review.
             if not self.state_manager.has_literature_review:
+                framework_logger.info("=== PHASE: LITERATURE REVIEW ===")
                 self.progress_tracker.start_phase(
                     ProgressPhase.LITERATURE_REVIEW,
                     f"Starting comprehensive literature review for: {self.state_manager.goal}"
                 )
                 
+                framework_logger.info(f"Building literature review agent with LLM: {type(self.config.literature_review_agent_llm).__name__}")
                 literature_review_agent = build_literature_review_agent(
                     self.config.literature_review_agent_llm
                 )
@@ -318,35 +330,49 @@ class CoscientistFramework:
                     # TODO: Make this configurable
                     max_subtopics=5
                 )
+                framework_logger.debug(f"Initial literature review state prepared with max_subtopics=5")
                 
                 self.progress_tracker.update_phase_progress(
                     "Decomposing research goal into focused subtopics"
                 )
+                framework_logger.info("Starting topic decomposition and research...")
                 
+                start_time = datetime.now()
                 final_lit_review_state = await literature_review_agent.ainvoke(
                     initial_lit_review_state
                 )
+                elapsed = (datetime.now() - start_time).total_seconds()
+                
                 self.state_manager.update_literature_review(final_lit_review_state)
                 
+                subtopics = final_lit_review_state.get('subtopics', [])
+                framework_logger.info(f"Literature review completed in {elapsed:.1f}s with {len(subtopics)} subtopics")
+                for i, topic in enumerate(subtopics, 1):
+                    framework_logger.debug(f"  Subtopic {i}: {topic[:100]}...")
+                
                 self.progress_tracker.complete_phase(
-                    f"Literature review completed with {len(final_lit_review_state.get('subtopics', []))} subtopics"
+                    f"Literature review completed with {len(subtopics)} subtopics"
                 )
 
             # TODO: Make this async
+            hypotheses_to_generate = max(0, n_hypotheses - self.state_manager.total_hypotheses)
+            framework_logger.info(f"Proceeding to generate {hypotheses_to_generate} hypotheses")
             _ = await self.generate_new_hypotheses(
-                n_hypotheses=max(0, n_hypotheses - self.state_manager.total_hypotheses)
+                n_hypotheses=hypotheses_to_generate
             )
 
             # Run the EloTournament
             # The top k for the bracket should the nearest power of
             # 2 less than the number of hypotheses and no more than 16.
             k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
+            framework_logger.info(f"Running initial tournament with k_bracket={k_bracket}")
             # TODO: Figure out the right LLM for this job; should it be different from meta-review?
             # Feels like it should be fixed for the sake of consistency though
             _ = await self.run_tournament(k_bracket=k_bracket)
             _ = await self.run_meta_review(k_bracket=k_bracket)
             
         except Exception as e:
+            framework_logger.error(f"Critical error during startup phase: {str(e)}", exc_info=True)
             self.progress_tracker.report_error(
                 f"Error during startup phase: {str(e)}",
                 error_info=str(e)
@@ -358,12 +384,16 @@ class CoscientistFramework:
         Generate new hypotheses.
         """
         if n_hypotheses > 0:
+            framework_logger.info(f"=== PHASE: HYPOTHESIS GENERATION ===")
+            framework_logger.info(f"Generating {n_hypotheses} new hypotheses")
             self.progress_tracker.start_phase(
                 ProgressPhase.HYPOTHESIS_GENERATION,
                 f"Generating {n_hypotheses} new hypotheses using multi-agent collaboration"
             )
             
             for i in range(n_hypotheses):
+                framework_logger.info(f"Generating hypothesis {i + 1} of {n_hypotheses}")
+                start_time = datetime.now()
                 progress_pct = ((i + 1) / n_hypotheses) * 50  # Generation is 50% of this phase
                 self.progress_tracker.update_phase_progress(
                     f"Generated hypothesis {i + 1} of {n_hypotheses}",
@@ -371,15 +401,20 @@ class CoscientistFramework:
                 )
                 self._generate_new_hypothesis()
                 self.state_manager.advance_hypothesis(kind="generated")
+                elapsed = (datetime.now() - start_time).total_seconds()
+                framework_logger.debug(f"Hypothesis {i + 1} generated in {elapsed:.1f}s")
 
             # Now run through the review queue and perform deep verification
+            framework_logger.info("=== PHASE: REFLECTION/VERIFICATION ===")
             self.progress_tracker.update_phase_progress(
                 "Starting deep verification and reflection process",
                 progress_percentage=50
             )
+            framework_logger.info("Processing reflection queue for generated hypotheses")
             self.process_reflection_queue()
             self.state_manager.update_proximity_graph_edges()
             
+            framework_logger.info(f"Successfully generated and verified {n_hypotheses} hypotheses")
             self.progress_tracker.complete_phase(
                 f"Generated and verified {n_hypotheses} hypotheses successfully"
             )
@@ -586,18 +621,36 @@ class CoscientistFramework:
         """
         Runs the coscientist system until it is finished.
         """
+        framework_logger.info("="*60)
+        framework_logger.info("Starting Coscientist Research Session")
+        framework_logger.info(f"Goal: {self.state_manager.goal}")
+        framework_logger.info("="*60)
+        
         try:
             # Start off with 4 hypotheses
             if not self.state_manager.is_started:
+                framework_logger.info("System not started, initializing with 4 hypotheses")
                 _ = await self.start(n_hypotheses=4)
 
             supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
+            framework_logger.info(f"Supervisor agent initialized with LLM: {type(self.config.supervisor_agent_llm).__name__}")
 
             current_action = None
+            iteration = 0
             while not self.state_manager.is_finished:
+                iteration += 1
+                framework_logger.info(f"\n--- Supervisor Decision Iteration {iteration} ---")
+                
                 initial_supervisor_state = self.state_manager.next_supervisor_state()
+                framework_logger.debug(f"Available actions: {self.available_actions()}")
+                
                 final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
                 current_action = final_supervisor_state["action"]
+                reasoning = final_supervisor_state.get("decision_reasoning", "")
+                
+                framework_logger.info(f"Supervisor decision: {current_action}")
+                framework_logger.debug(f"Reasoning: {reasoning}")
+                
                 assert (
                     current_action in self.available_actions()
                 ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
@@ -607,14 +660,24 @@ class CoscientistFramework:
                 # Update progress before executing action
                 self.progress_tracker.update_phase_progress(
                     f"Supervisor decided to: {current_action}",
-                    details={"action": current_action, "reasoning": final_supervisor_state.get("decision_reasoning", "")}
+                    details={"action": current_action, "reasoning": reasoning}
                 )
                 
+                framework_logger.info(f"Executing action: {current_action}")
+                action_start = datetime.now()
                 _ = await getattr(self, current_action)()
+                action_elapsed = (datetime.now() - action_start).total_seconds()
+                framework_logger.info(f"Action '{current_action}' completed in {action_elapsed:.1f}s")
 
+            framework_logger.info("="*60)
+            framework_logger.info("Research Session Completed Successfully")
+            framework_logger.info(f"Total iterations: {iteration}")
+            framework_logger.info("="*60)
+            
             return self.state_manager.final_report, self.state_manager.meta_reviews[-1]
             
         except Exception as e:
+            framework_logger.error(f"Critical error in research process: {str(e)}", exc_info=True)
             self.progress_tracker.report_error(
                 f"Critical error in research process: {str(e)}",
                 error_info=str(e)

@@ -14,13 +14,18 @@ More details:
 - Considers quality metrics, diversity metrics, and research momentum
 """
 
+import logging
 import re
 from typing import TypedDict
+from datetime import datetime
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import END, StateGraph
 
 from coscientist.common import load_prompt
+
+# Configure logger
+supervisor_logger = logging.getLogger('coscientist.supervisor')
 
 
 class SupervisorDecisionState(TypedDict):
@@ -64,6 +69,7 @@ def build_supervisor_agent(llm: BaseChatModel) -> StateGraph:
     StateGraph
         A compiled LangGraph for the supervisor agent.
     """
+    supervisor_logger.debug(f"Building supervisor agent with LLM: {type(llm).__name__}")
     graph = StateGraph(SupervisorDecisionState)
 
     graph.add_node(
@@ -118,6 +124,14 @@ def _supervisor_decision_node(
     """
     Supervisor decision node that analyzes system state and decides next action.
     """
+    supervisor_logger.info("Supervisor analyzing system state for next action")
+    supervisor_logger.debug(f"Current statistics:")
+    supervisor_logger.debug(f"  Total actions: {state['total_actions']}")
+    supervisor_logger.debug(f"  Total hypotheses: {state['total_hypotheses']}")
+    supervisor_logger.debug(f"  Unranked hypotheses: {state['num_unranked_hypotheses']}")
+    supervisor_logger.debug(f"  Meta reviews: {state['num_meta_reviews']}")
+    supervisor_logger.debug(f"  Latest actions: {state['latest_actions']}")
+    
     prompt = load_prompt(
         "supervisor_decision",
         goal=state["goal"],
@@ -142,6 +156,16 @@ def _supervisor_decision_node(
         ],
     )
 
+    supervisor_logger.info(f"Invoking supervisor LLM for decision (model: {type(llm).__name__})")
+    start_time = datetime.now()
     response_content = llm.invoke(prompt).content
+    elapsed = (datetime.now() - start_time).total_seconds()
+    
+    supervisor_logger.debug(f"LLM response received in {elapsed:.1f}s")
+    
     action, decision_reasoning = _parse_supervisor_response(response_content)
+    
+    supervisor_logger.info(f"Supervisor decision: {action}")
+    supervisor_logger.debug(f"Decision reasoning: {decision_reasoning[:200]}...")
+    
     return {**state, "action": action, "decision_reasoning": decision_reasoning}
