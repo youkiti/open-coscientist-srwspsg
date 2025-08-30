@@ -6,6 +6,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
+from coscientist.openai_client import create_openai_responses_client
+
 # Import the background process functions
 from background import (
     check_coscientist_status,
@@ -25,11 +27,20 @@ def get_llm_options():
     """Get available LLM options for the chat interface."""
     return {
         "o3": ChatOpenAI(model="o3", max_tokens=5000, max_retries=3),
+        "GPT-5": create_openai_responses_client(
+            model="gpt-5",
+            max_tokens=5000,
+            max_retries=3,
+            reasoning_effort="high"
+        ),
         "Gemini 2.5 Pro": ChatGoogleGenerativeAI(
             model="gemini-2.5-pro",
             temperature=1.0,
             max_retries=3,
             max_tokens=5000,
+        ),
+        "Claude Opus 4.1": ChatAnthropic(
+            model="claude-opus-4-1-20250805", max_tokens=5000, max_retries=3
         ),
         "Claude Sonnet 4": ChatAnthropic(
             model="claude-sonnet-4-20250514", max_tokens=5000, max_retries=3

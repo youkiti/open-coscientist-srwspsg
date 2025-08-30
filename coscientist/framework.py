@@ -15,6 +15,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+from coscientist.openai_client import create_openai_responses_client
+
 from coscientist.evolution_agent import build_evolution_agent
 from coscientist.final_report_agent import build_final_report_agent
 from coscientist.generation_agent import (
@@ -33,11 +35,20 @@ from coscientist.supervisor_agent import build_supervisor_agent
 # tasks entailed by the Coscientist system.
 _SMARTER_LLM_POOL = {
     "o3": ChatOpenAI(model="o3", max_tokens=50_000, max_retries=3),
+    "gpt-5": create_openai_responses_client(
+        model="gpt-5", 
+        max_tokens=50_000, 
+        max_retries=3,
+        reasoning_effort="high"
+    ),
     "gemini-2.5-pro": ChatGoogleGenerativeAI(
         model="gemini-2.5-pro",
         temperature=1.0,
         max_retries=3,
         max_tokens=50_000,
+    ),
+    "claude-opus-4-1-20250805": ChatAnthropic(
+        model="claude-opus-4-1-20250805", max_tokens=50_000, max_retries=3
     ),
     "claude-sonnet-4-20250514": ChatAnthropic(
         model="claude-sonnet-4-20250514", max_tokens=50_000, max_retries=3
@@ -45,6 +56,12 @@ _SMARTER_LLM_POOL = {
 }
 _CHEAPER_LLM_POOL = {
     "o4-mini": ChatOpenAI(model="o4-mini", max_tokens=50_000, max_retries=3),
+    "gpt-5-mini": create_openai_responses_client(
+        model="gpt-5",
+        max_tokens=25_000,
+        max_retries=3,
+        reasoning_effort="medium"
+    ),
     "gemini-2.5-flash": ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         temperature=1.0,
@@ -90,17 +107,17 @@ class CoscientistConfig:
     def __init__(
         self,
         literature_review_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
-            "claude-sonnet-4-20250514"
+            "claude-opus-4-1-20250805"
         ],
         generation_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         reflection_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         evolution_agent_llms: dict[str, BaseChatModel] = _SMARTER_LLM_POOL,
         meta_review_agent_llm: BaseChatModel = _CHEAPER_LLM_POOL["gemini-2.5-flash"],
         supervisor_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
-            "claude-sonnet-4-20250514"
+            "claude-opus-4-1-20250805"
         ],
         final_report_agent_llm: BaseChatModel = _SMARTER_LLM_POOL[
-            "claude-sonnet-4-20250514"
+            "claude-opus-4-1-20250805"
         ],
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small", dimensions=256
