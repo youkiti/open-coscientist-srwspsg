@@ -167,3 +167,6 @@ Default parameters in `researcher_config.json` control:
 - Token limits and search parameters
 - Research depth and breadth settings
 - Output formatting preferences
+
+### Order
+- Use `test/` folder for test codes.

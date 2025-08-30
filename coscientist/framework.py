@@ -16,6 +16,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from coscientist.openai_client import create_openai_responses_client
+from coscientist.progress_tracker import ProgressTracker, ProgressPhase, ProgressStatus
 
 from coscientist.evolution_agent import build_evolution_agent
 from coscientist.final_report_agent import build_final_report_agent
@@ -151,6 +152,13 @@ class CoscientistFramework:
     ):
         self.config = config
         self.state_manager = state_manager
+        
+        # Initialize progress tracker
+        self.progress_tracker = ProgressTracker(goal=state_manager.goal)
+        self.progress_tracker.start_phase(
+            ProgressPhase.INITIALIZING,
+            "Framework initialized, ready to begin research"
+        )
 
     def list_generation_llm_names(self) -> list[str]:
         """
@@ -295,45 +303,86 @@ class CoscientistFramework:
                 f"Use one of {self.available_actions()} instead!"
             )
 
-        # Perform the initial literature review.
-        if not self.state_manager.has_literature_review:
-            literature_review_agent = build_literature_review_agent(
-                self.config.literature_review_agent_llm
-            )
-            initial_lit_review_state = self.state_manager.next_literature_review_state(
-                # TODO: Make this configurable
-                max_subtopics=5
-            )
-            final_lit_review_state = await literature_review_agent.ainvoke(
-                initial_lit_review_state
-            )
-            self.state_manager.update_literature_review(final_lit_review_state)
+        try:
+            # Perform the initial literature review.
+            if not self.state_manager.has_literature_review:
+                self.progress_tracker.start_phase(
+                    ProgressPhase.LITERATURE_REVIEW,
+                    f"Starting comprehensive literature review for: {self.state_manager.goal}"
+                )
+                
+                literature_review_agent = build_literature_review_agent(
+                    self.config.literature_review_agent_llm
+                )
+                initial_lit_review_state = self.state_manager.next_literature_review_state(
+                    # TODO: Make this configurable
+                    max_subtopics=5
+                )
+                
+                self.progress_tracker.update_phase_progress(
+                    "Decomposing research goal into focused subtopics"
+                )
+                
+                final_lit_review_state = await literature_review_agent.ainvoke(
+                    initial_lit_review_state
+                )
+                self.state_manager.update_literature_review(final_lit_review_state)
+                
+                self.progress_tracker.complete_phase(
+                    f"Literature review completed with {len(final_lit_review_state.get('subtopics', []))} subtopics"
+                )
 
-        # TODO: Make this async
-        _ = await self.generate_new_hypotheses(
-            n_hypotheses=max(0, n_hypotheses - self.state_manager.total_hypotheses)
-        )
+            # TODO: Make this async
+            _ = await self.generate_new_hypotheses(
+                n_hypotheses=max(0, n_hypotheses - self.state_manager.total_hypotheses)
+            )
 
-        # Run the EloTournament
-        # The top k for the bracket should the nearest power of
-        # 2 less than the number of hypotheses and no more than 16.
-        k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
-        # TODO: Figure out the right LLM for this job; should it be different from meta-review?
-        # Feels like it should be fixed for the sake of consistency though
-        _ = await self.run_tournament(k_bracket=k_bracket)
-        _ = await self.run_meta_review(k_bracket=k_bracket)
+            # Run the EloTournament
+            # The top k for the bracket should the nearest power of
+            # 2 less than the number of hypotheses and no more than 16.
+            k_bracket = min(16, 2 ** math.floor(math.log2(n_hypotheses)))
+            # TODO: Figure out the right LLM for this job; should it be different from meta-review?
+            # Feels like it should be fixed for the sake of consistency though
+            _ = await self.run_tournament(k_bracket=k_bracket)
+            _ = await self.run_meta_review(k_bracket=k_bracket)
+            
+        except Exception as e:
+            self.progress_tracker.report_error(
+                f"Error during startup phase: {str(e)}",
+                error_info=str(e)
+            )
+            raise
 
     async def generate_new_hypotheses(self, n_hypotheses: int = 2) -> None:
         """
         Generate new hypotheses.
         """
-        for _ in range(n_hypotheses):
-            self._generate_new_hypothesis()
-            self.state_manager.advance_hypothesis(kind="generated")
+        if n_hypotheses > 0:
+            self.progress_tracker.start_phase(
+                ProgressPhase.HYPOTHESIS_GENERATION,
+                f"Generating {n_hypotheses} new hypotheses using multi-agent collaboration"
+            )
+            
+            for i in range(n_hypotheses):
+                progress_pct = ((i + 1) / n_hypotheses) * 50  # Generation is 50% of this phase
+                self.progress_tracker.update_phase_progress(
+                    f"Generated hypothesis {i + 1} of {n_hypotheses}",
+                    progress_percentage=progress_pct
+                )
+                self._generate_new_hypothesis()
+                self.state_manager.advance_hypothesis(kind="generated")
 
-        # Now run through the review queue and perform deep verification
-        self.process_reflection_queue()
-        self.state_manager.update_proximity_graph_edges()
+            # Now run through the review queue and perform deep verification
+            self.progress_tracker.update_phase_progress(
+                "Starting deep verification and reflection process",
+                progress_percentage=50
+            )
+            self.process_reflection_queue()
+            self.state_manager.update_proximity_graph_edges()
+            
+            self.progress_tracker.complete_phase(
+                f"Generated and verified {n_hypotheses} hypotheses successfully"
+            )
 
     async def evolve_hypotheses(self, n_hypotheses: int = 4) -> None:
         """
@@ -342,6 +391,12 @@ class CoscientistFramework:
         """
         assert n_hypotheses >= 2, "Must evolve at least two hypotheses"
         assert self.state_manager.is_started, "Coscientist system must be started first"
+        
+        self.progress_tracker.start_phase(
+            ProgressPhase.EVOLUTION,
+            f"Evolving {n_hypotheses} hypotheses based on tournament feedback"
+        )
+        
         evolution_candidate_uids = (
             self.state_manager.get_tournament_hypotheses_for_evolution()
         )
@@ -362,7 +417,16 @@ class CoscientistFramework:
         ).tolist()
 
         # Evolve the top ranked and random hypotheses based on feedback
+        total_evolutions = len(top_ranked_uids + random_uids) + 1  # +1 for out-of-the-box
+        current_evolution = 0
+        
         for uid in top_ranked_uids + random_uids:
+            progress_pct = (current_evolution / total_evolutions) * 70  # Evolution is 70% of this phase
+            self.progress_tracker.update_phase_progress(
+                f"Evolving hypothesis {current_evolution + 1} of {total_evolutions} from feedback",
+                progress_percentage=progress_pct
+            )
+            
             initial_evolution_state = self.state_manager.next_evolution_state(
                 mode="evolve_from_feedback", uid_to_evolve=uid
             )
@@ -376,9 +440,15 @@ class CoscientistFramework:
                 final_evolution_state["evolved_hypothesis"]
             )
             self.state_manager.advance_hypothesis(kind="evolved")
+            current_evolution += 1
 
         # Run one round instance of evolving the top ranked hypotheses
         # into something new
+        self.progress_tracker.update_phase_progress(
+            "Creating novel hypothesis through out-of-the-box evolution",
+            progress_percentage=70
+        )
+        
         out_of_box_initial_state = self.state_manager.next_evolution_state(
             mode="out_of_the_box",
             top_k=n_hypotheses // 2,
@@ -393,6 +463,10 @@ class CoscientistFramework:
         )
 
         # Move the evolved hypotheses to the reflection queue
+        self.progress_tracker.update_phase_progress(
+            "Processing evolved hypotheses through reflection queue",
+            progress_percentage=85
+        )
         self.state_manager.advance_hypothesis(kind="evolved")
 
         # TODO: Do we have to worry about reflecting on hypotheses that are
@@ -403,6 +477,10 @@ class CoscientistFramework:
 
         # Move the reviewed hypothesis to the EloTournament.
         self.state_manager.update_proximity_graph_edges()
+        
+        self.progress_tracker.complete_phase(
+            f"Evolution completed - generated {total_evolutions} evolved hypotheses"
+        )
 
     async def expand_literature_review(self) -> None:
         """
@@ -425,25 +503,70 @@ class CoscientistFramework:
             k_bracket,
             2 ** math.floor(math.log2(self.state_manager.num_tournament_hypotheses)),
         )
+        
+        self.progress_tracker.start_phase(
+            ProgressPhase.TOURNAMENT,
+            f"Running ELO tournament with top {k_bracket} hypotheses"
+        )
+        
+        self.progress_tracker.update_phase_progress(
+            f"Starting head-to-head competitions for {self.state_manager.num_tournament_hypotheses} hypotheses"
+        )
+        
         self.state_manager.run_tournament(
             llm=self.config.meta_review_agent_llm, k_bracket=k_bracket
         )
+        
+        self.progress_tracker.complete_phase(
+            f"Tournament completed with {k_bracket} hypotheses ranked by ELO rating"
+        )
 
     async def run_meta_review(self, k_bracket: int = 8) -> None:
+        self.progress_tracker.start_phase(
+            ProgressPhase.META_REVIEW,
+            f"Analyzing and synthesizing insights from top {k_bracket} hypotheses"
+        )
+        
         initial_meta_review_state = self.state_manager.next_meta_review_state(
             top_k=k_bracket
         )
+        
+        self.progress_tracker.update_phase_progress(
+            "Performing comprehensive meta-analysis of research findings"
+        )
+        
         meta_review_agent = build_meta_review_agent(self.config.meta_review_agent_llm)
         final_meta_review_state = meta_review_agent.invoke(initial_meta_review_state)
         self.state_manager.update_meta_review(final_meta_review_state)
+        
+        self.progress_tracker.complete_phase(
+            f"Meta-review completed with comprehensive analysis of {k_bracket} top hypotheses"
+        )
 
     async def finish(self) -> None:
+        self.progress_tracker.start_phase(
+            ProgressPhase.FINAL_REPORT,
+            "Generating comprehensive final research report"
+        )
+        
         initial_final_report_state = self.state_manager.next_final_report_state(top_k=3)
+        
+        self.progress_tracker.update_phase_progress(
+            "Compiling research findings and generating final report"
+        )
+        
         final_report_agent = build_final_report_agent(
             self.config.final_report_agent_llm
         )
         final_report_state = final_report_agent.invoke(initial_final_report_state)
         self.state_manager.update_final_report(final_report_state)
+        
+        self.progress_tracker.complete_phase(
+            "Final research report generated successfully"
+        )
+        
+        # Mark the entire research process as completed
+        self.progress_tracker.complete_research()
 
     @classmethod
     def available_actions(self) -> list[str]:
@@ -463,22 +586,37 @@ class CoscientistFramework:
         """
         Runs the coscientist system until it is finished.
         """
-        # Start off with 4 hypotheses
-        if not self.state_manager.is_started:
-            _ = await self.start(n_hypotheses=4)
+        try:
+            # Start off with 4 hypotheses
+            if not self.state_manager.is_started:
+                _ = await self.start(n_hypotheses=4)
 
-        supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
+            supervisor_agent = build_supervisor_agent(self.config.supervisor_agent_llm)
 
-        current_action = None
-        while not self.state_manager.is_finished:
-            initial_supervisor_state = self.state_manager.next_supervisor_state()
-            final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
-            current_action = final_supervisor_state["action"]
-            assert (
-                current_action in self.available_actions()
-            ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
-            self.state_manager.update_supervisor_decision(final_supervisor_state)
-            self.state_manager.add_action(current_action)
-            _ = await getattr(self, current_action)()
+            current_action = None
+            while not self.state_manager.is_finished:
+                initial_supervisor_state = self.state_manager.next_supervisor_state()
+                final_supervisor_state = supervisor_agent.invoke(initial_supervisor_state)
+                current_action = final_supervisor_state["action"]
+                assert (
+                    current_action in self.available_actions()
+                ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
+                self.state_manager.update_supervisor_decision(final_supervisor_state)
+                self.state_manager.add_action(current_action)
+                
+                # Update progress before executing action
+                self.progress_tracker.update_phase_progress(
+                    f"Supervisor decided to: {current_action}",
+                    details={"action": current_action, "reasoning": final_supervisor_state.get("decision_reasoning", "")}
+                )
+                
+                _ = await getattr(self, current_action)()
 
-        return self.state_manager.final_report, self.state_manager.meta_reviews[-1]
+            return self.state_manager.final_report, self.state_manager.meta_reviews[-1]
+            
+        except Exception as e:
+            self.progress_tracker.report_error(
+                f"Critical error in research process: {str(e)}",
+                error_info=str(e)
+            )
+            raise

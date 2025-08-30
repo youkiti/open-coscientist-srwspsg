@@ -12,6 +12,7 @@ from configuration_page import display_configuration_page
 from final_report_page import display_final_report_page
 from literature_review_page import display_literature_review_page
 from meta_reviews_page import display_meta_reviews_page
+from progress_page import display_progress_page
 from proximity_page import display_proximity_graph_page
 from resume_page import display_resume_page
 from supervisor_page import display_supervisor_page
@@ -25,6 +26,7 @@ page = st.sidebar.selectbox(
     "Select Page",
     [
         "Configuration Agent",
+        "Live Progress Monitor",
         "Literature Review",
         "Tournament Rankings",
         "Proximity Graph",
@@ -136,6 +138,8 @@ def main():
     # Display appropriate page based on navigation
     if page == "Configuration Agent":
         display_configuration_page()
+    elif page == "Live Progress Monitor":
+        display_progress_page()
     elif page == "Literature Review":
         if state is None:
             st.info(
