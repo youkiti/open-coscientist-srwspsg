@@ -194,9 +194,30 @@ def display_configuration_page():
                 if not st.session_state.coscientist_running:
                     if st.button("🚀 Launch Coscientist", type="primary"):
                         try:
-                            # Ensure the directory is clean before starting
-                            CoscientistState.clear_goal_directory(refined_goal)
+                            # Show debug information
+                            with st.spinner("Initializing Coscientist..."):
+                                st.write("🔍 **Debug Information:**")
+                                
+                                # Check environment variables
+                                import os
+                                env_status = {}
+                                for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'TAVILY_API_KEY']:
+                                    env_status[key] = 'SET' if os.environ.get(key) else 'NOT SET'
+                                st.write(f"Environment variables: {env_status}")
+                                
+                                # Show goal hash and directory
+                                goal_hash = CoscientistState._hash_goal(refined_goal)
+                                output_dir = os.path.join(
+                                    os.environ.get("COSCIENTIST_DIR", os.path.expanduser("~/.coscientist")),
+                                    goal_hash,
+                                )
+                                st.write(f"Goal hash: {goal_hash}")
+                                st.write(f"Output directory: {output_dir}")
 
+                            # Directory cleanup now handled by the background process
+                            st.info("🔄 Directory cleanup will be handled by the background process")
+
+                            # Create and start process
                             process = multiprocessing.Process(
                                 target=coscientist_process_target, args=(refined_goal,)
                             )
@@ -204,9 +225,15 @@ def display_configuration_page():
                             st.session_state.coscientist_process = process
                             st.session_state.coscientist_running = True
                             st.session_state.refined_goal = refined_goal
+                            
+                            st.success(f"✅ Process started with PID: {process.pid}")
+                            st.info("📝 Check the process logs in the output directory for detailed progress.")
+                            
                             st.rerun()
                         except Exception as e:
                             st.error(f"Failed to launch Coscientist: {e}")
+                            import traceback
+                            st.error(f"Traceback: {traceback.format_exc()}")
 
                 else:
                     st.button("🚀 Coscientist Running...", disabled=True)
@@ -214,6 +241,34 @@ def display_configuration_page():
             # Handle coscientist execution
             if st.session_state.coscientist_running:
                 with st.spinner("🔬 Coscientist is running in the background..."):
+                    # Show process information
+                    if st.session_state.coscientist_process:
+                        st.info(f"Process PID: {st.session_state.coscientist_process.pid}")
+                        st.info(f"Process alive: {st.session_state.coscientist_process.is_alive()}")
+                    
+                    # Check for log file
+                    import os
+                    goal_hash = CoscientistState._hash_goal(st.session_state.refined_goal)
+                    log_file = os.path.join(
+                        os.environ.get("COSCIENTIST_DIR", os.path.expanduser("~/.coscientist")),
+                        goal_hash,
+                        "process.log"
+                    )
+                    if os.path.exists(log_file):
+                        st.info(f"📝 Log file exists: {log_file}")
+                        # Show last few lines of log
+                        try:
+                            with open(log_file, "r") as f:
+                                lines = f.readlines()
+                                if lines:
+                                    st.text("Recent log entries:")
+                                    for line in lines[-5:]:  # Last 5 lines
+                                        st.text(line.strip())
+                        except Exception as e:
+                            st.warning(f"Could not read log file: {e}")
+                    else:
+                        st.warning("Log file not found yet")
+                    
                     # Give it a moment before the first check
                     time.sleep(5)
                     st.rerun()  # Rerun to check status

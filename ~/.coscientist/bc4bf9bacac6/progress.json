@@ -1,0 +1,38 @@
+{
+  "goal": "What are the mechanisms of neural plasticity in learning?",
+  "start_time": 1756595383.0822368,
+  "current_phase": "initializing",
+  "events": [
+    {
+      "timestamp": 1756595383.0823832,
+      "phase": "initializing",
+      "status": "started",
+      "message": "Initializing Coscientist research framework",
+      "details": null,
+      "progress_percentage": null,
+      "estimated_duration": 1430,
+      "error_info": null
+    },
+    {
+      "timestamp": 1756595383.0828104,
+      "phase": "initializing",
+      "status": "started",
+      "message": "Framework initialized, ready to begin research",
+      "details": null,
+      "progress_percentage": null,
+      "estimated_duration": 1430,
+      "error_info": null
+    }
+  ],
+  "summary": {
+    "overall_progress": 0.0,
+    "current_phase": "initializing",
+    "current_status": "started",
+    "current_message": "Framework initialized, ready to begin research",
+    "total_elapsed_time": 0.0006115436553955078,
+    "estimated_remaining_time": 1430,
+    "estimated_total_time": 1430.0006115436554,
+    "last_update": 1756595383.0828104,
+    "error_occurred": false
+  }
+}
