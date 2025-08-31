@@ -340,9 +340,9 @@ class CoscientistFramework:
                 )
                 initial_lit_review_state = self.state_manager.next_literature_review_state(
                     # TODO: Make this configurable
-                    max_subtopics=5
+                    max_subtopics=3
                 )
-                framework_logger.debug(f"Initial literature review state prepared with max_subtopics=5")
+                framework_logger.debug(f"Initial literature review state prepared with max_subtopics=3")
                 
                 self.progress_tracker.update_phase_progress(
                     "Decomposing research goal into focused subtopics"
@@ -557,7 +557,7 @@ class CoscientistFramework:
         """
         initial_lit_review_state = self.state_manager.next_literature_review_state(
             # TODO: Make this configurable
-            max_subtopics=5
+            max_subtopics=3
         )
         literature_review_agent = build_literature_review_agent(
             self.config.literature_review_agent_llm

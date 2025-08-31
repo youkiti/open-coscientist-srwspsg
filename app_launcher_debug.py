@@ -10,13 +10,58 @@ import logging
 from pathlib import Path
 import sys
 import os
+import time
+import threading
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional, Dict, Any
 
 # Add coscientist to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from coscientist.framework import CoscientistConfig, CoscientistFramework, _SMARTER_LLM_POOL
 from coscientist.global_state import CoscientistState, CoscientistStateManager
+from coscientist.progress_tracker import ProgressTracker, ProgressPhase, ProgressStatus
+
+
+class StreamlitProgressTracker:
+    """Custom progress tracker that updates Streamlit session state."""
+    
+    def __init__(self):
+        self.current_phase = "Waiting"
+        self.current_subtask = ""
+        self.progress_percentage = 0
+        self.phases = {
+            "Literature Review": 20,
+            "Hypothesis Generation": 40,
+            "Reflection & Review": 60,
+            "Tournament Ranking": 75,
+            "Evolution": 85,
+            "Meta Review": 95,
+            "Final Report": 100
+        }
+    
+    def update_phase(self, phase_name: str, subtask: str = ""):
+        """Update the current research phase."""
+        self.current_phase = phase_name
+        self.current_subtask = subtask
+        self.progress_percentage = self.phases.get(phase_name, 0)
+        
+        # Update Streamlit session state
+        if hasattr(st.session_state, 'research_phase'):
+            st.session_state.research_phase = phase_name
+            st.session_state.current_subtask = subtask
+            st.session_state.progress_percentage = self.progress_percentage
+            st.session_state.research_status = f"Running {phase_name}..."
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current status as dictionary."""
+        return {
+            "phase": self.current_phase,
+            "subtask": self.current_subtask,
+            "progress": self.progress_percentage,
+            "status": f"Running {self.current_phase}..." if self.current_phase != "Waiting" else "Not started"
+        }
 
 # Configure logging
 logging.basicConfig(
@@ -46,6 +91,20 @@ if 'checkpoint_path' not in st.session_state:
     st.session_state.checkpoint_path = None
 if 'research_status' not in st.session_state:
     st.session_state.research_status = "Not started"
+if 'research_phase' not in st.session_state:
+    st.session_state.research_phase = "Waiting"
+if 'progress_percentage' not in st.session_state:
+    st.session_state.progress_percentage = 0
+if 'current_subtask' not in st.session_state:
+    st.session_state.current_subtask = ""
+if 'research_thread' not in st.session_state:
+    st.session_state.research_thread = None
+if 'research_complete' not in st.session_state:
+    st.session_state.research_complete = False
+if 'research_results' not in st.session_state:
+    st.session_state.research_results = None
+if 'research_error' not in st.session_state:
+    st.session_state.research_error = None
 
 
 def check_existing_research(goal: str):
@@ -57,24 +116,51 @@ def check_existing_research(goal: str):
         return False, []
 
 
-async def start_coscientist(goal: str, resume: bool = False):
-    """Start or resume CoScientist research."""
+def check_research_progress():
+    """Check the progress of running research and update UI accordingly."""
+    if not st.session_state.get('research_thread'):
+        return
+    
+    future = st.session_state.research_thread
+    
+    if future.done():
+        # Research completed or failed
+        try:
+            result = future.result()
+            if result and not st.session_state.get('research_error'):
+                st.session_state.research_complete = True
+                st.session_state.research_results = result
+        except Exception as e:
+            st.session_state.research_error = f"Research failed: {str(e)}"
+        finally:
+            st.session_state.research_thread = None
+    
+    # Update progress display
+    if hasattr(st.session_state, 'progress_tracker'):
+        status = st.session_state.progress_tracker.get_status()
+        st.session_state.research_status = status['status']
+        st.session_state.research_phase = status['phase']
+        st.session_state.current_subtask = status['subtask']
+        st.session_state.progress_percentage = status['progress']
+
+
+def run_coscientist_background(goal: str, resume: bool, progress_tracker: StreamlitProgressTracker):
+    """Run CoScientist in background thread with progress tracking."""
     
     try:
+        progress_tracker.update_phase("Initializing", "Setting up research state")
+        
         if resume:
             # Load existing state
-            st.info("Loading existing research state...")
             state = CoscientistState.load_latest(goal=goal)
             if not state:
-                st.error("Failed to load existing state")
+                st.session_state.research_error = "Failed to load existing state"
                 return None, None
-            st.success(f"Loaded checkpoint with {len(state.generated_hypotheses)} hypotheses")
         else:
             # Clear any existing research for this goal
             CoscientistState.clear_goal_directory(goal)
             
             # Create new state
-            st.info("Creating new research state...")
             state = CoscientistState(goal=goal)
         
         # Create state manager
@@ -91,32 +177,76 @@ async def start_coscientist(goal: str, resume: bool = False):
         # Create framework
         framework = CoscientistFramework(config, state_manager)
         
-        # Run research
-        st.info("Starting CoScientist research framework...")
-        st.session_state.research_status = "Running literature review..."
+        # Create custom progress tracker for framework
+        class FrameworkProgressCallback:
+            def __init__(self, tracker):
+                self.tracker = tracker
+            
+            def on_phase_start(self, phase_name, description=""):
+                self.tracker.update_phase(phase_name, description)
         
-        # Run the framework
-        final_report, meta_review = await framework.run()
+        progress_callback = FrameworkProgressCallback(progress_tracker)
         
-        st.session_state.research_status = "Research completed!"
+        # Update progress at different phases
+        progress_tracker.update_phase("Literature Review", "Analyzing research goal and conducting literature search")
+        
+        # Run the framework - this will be the main research execution
+        final_report, meta_review = asyncio.run(framework.run())
+        
+        # Mark as complete
+        progress_tracker.update_phase("Final Report", "Research completed successfully")
+        st.session_state.research_complete = True
+        st.session_state.research_results = (final_report, meta_review)
+        
         return final_report, meta_review
         
     except Exception as e:
-        st.error(f"Error during research: {str(e)}")
-        st.session_state.research_status = f"Error: {str(e)}"
+        error_msg = f"Error during research: {str(e)}"
+        st.session_state.research_error = error_msg
+        progress_tracker.update_phase("Error", error_msg)
         
         # Try to save error checkpoint
         try:
             if 'state' in locals():
                 checkpoint = state.save()
-                st.info(f"Error checkpoint saved: {checkpoint}")
-        except:
-            pass
+                logging.info(f"Error checkpoint saved: {checkpoint}")
+        except Exception as save_error:
+            logging.error(f"Failed to save error checkpoint: {save_error}")
         
         return None, None
 
 
+def start_coscientist_nonblocking(goal: str, resume: bool = False):
+    """Start CoScientist research in a non-blocking way."""
+    
+    # Create progress tracker
+    progress_tracker = StreamlitProgressTracker()
+    
+    # Initialize session state for this research run
+    st.session_state.research_started = True
+    st.session_state.research_complete = False
+    st.session_state.research_results = None
+    st.session_state.research_error = None
+    st.session_state.progress_tracker = progress_tracker
+    
+    # Start research in background thread
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(run_coscientist_background, goal, resume, progress_tracker)
+    st.session_state.research_thread = future
+    
+    return future
+
+
 def main():
+    # Auto-refresh every 2 seconds if research is running
+    if (st.session_state.get('research_started') and 
+        not st.session_state.get('research_complete') and 
+        not st.session_state.get('research_error')):
+        time.sleep(2)
+        st.rerun()
+    
+    # Check research progress
+    check_research_progress()
     st.title("🔬 CoScientist Research Launcher")
     st.markdown("---")
     
@@ -177,17 +307,14 @@ def main():
             
             with col_new:
                 if st.button("🆕 Start Fresh Research", type="secondary", use_container_width=True):
-                    st.session_state.research_started = True
-                    st.session_state.resume = False
+                    start_coscientist_nonblocking(research_goal, resume=False)
             
             with col_resume:
                 if st.button("📂 Resume from Checkpoint", type="primary", use_container_width=True):
-                    st.session_state.research_started = True
-                    st.session_state.resume = True
+                    start_coscientist_nonblocking(research_goal, resume=True)
         else:
             if st.button("✅ Confirm RQ and Start CoScientist", type="primary", use_container_width=True):
-                st.session_state.research_started = True
-                st.session_state.resume = False
+                start_coscientist_nonblocking(research_goal, resume=False)
     
     with col2:
         st.header("📊 Status")
@@ -215,16 +342,6 @@ def main():
         # Create placeholder for dynamic updates
         research_container = st.container()
         
-        with research_container:
-            with st.spinner("Running CoScientist multi-agent research system..."):
-                # Run the async research
-                final_report, meta_review = asyncio.run(
-                    start_coscientist(
-                        st.session_state.research_goal,
-                        resume=st.session_state.get('resume', False)
-                    )
-                )
-            
             if final_report:
                 st.success("✅ Research completed successfully!")
                 
