@@ -351,6 +351,11 @@ class CoscientistStateManager:
         return self._state.goal
 
     @property
+    def output_dir(self) -> str:
+        """The output directory for this research goal."""
+        return self._state._output_dir
+
+    @property
     def is_started(self) -> bool:
         """
         Check if the Coscientist system has started.
