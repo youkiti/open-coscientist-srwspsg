@@ -53,10 +53,10 @@ _SMARTER_LLM_POOL = {
         max_tokens=50_000,
     ),
     "claude-opus-4-1-20250805": ChatAnthropic(
-        model="claude-opus-4-1-20250805", max_tokens=50_000, max_retries=3
+        model="claude-opus-4-1-20250805", max_tokens=32_000, max_retries=3
     ),
     "claude-sonnet-4-20250514": ChatAnthropic(
-        model="claude-sonnet-4-20250514", max_tokens=50_000, max_retries=3
+        model="claude-sonnet-4-20250514", max_tokens=32_000, max_retries=3
     ),
 }
 _CHEAPER_LLM_POOL = {
@@ -75,7 +75,7 @@ _CHEAPER_LLM_POOL = {
     ),
     # Anthropic doesn't have a good cheaper model
     "claude-sonnet-4-20250514": ChatAnthropic(
-        model="claude-sonnet-4-20250514", max_tokens=50_000, max_retries=3
+        model="claude-sonnet-4-20250514", max_tokens=32_000, max_retries=3
     ),
 }
 
@@ -106,6 +106,12 @@ class CoscientistConfig:
     specialist_fields : list[str]
         The fields of expertise for generation agents. This list should be expanded
         by the configuration agent.
+    debug_mode : bool
+        Enable debug mode with verbose logging and phase checkpoints.
+    pause_after_literature_review : bool
+        Pause execution after literature review phase for debugging.
+    save_on_error : bool
+        Automatically save checkpoint when errors occur.
 
     """
 
@@ -128,6 +134,9 @@ class CoscientistConfig:
             model="text-embedding-3-small", dimensions=256
         ),
         specialist_fields: list[str] | None = None,
+        debug_mode: bool = False,
+        pause_after_literature_review: bool = False,
+        save_on_error: bool = True,
     ):
         # TODO: Add functionality for overriding GPTResearcher config.
         self.literature_review_agent_llm = literature_review_agent_llm
@@ -142,6 +151,9 @@ class CoscientistConfig:
             self.specialist_fields = ["biology"]
         else:
             self.specialist_fields = specialist_fields
+        self.debug_mode = debug_mode
+        self.pause_after_literature_review = pause_after_literature_review
+        self.save_on_error = save_on_error
 
 
 class CoscientistFramework:
@@ -353,6 +365,18 @@ class CoscientistFramework:
                 self.progress_tracker.complete_phase(
                     f"Literature review completed with {len(subtopics)} subtopics"
                 )
+                
+                # Save checkpoint if debug mode enabled
+                if self.config.debug_mode:
+                    framework_logger.info("Debug mode: Saving checkpoint after literature review")
+                    checkpoint_path = self.state_manager._state.save()
+                    framework_logger.info(f"Checkpoint saved to: {checkpoint_path}")
+                
+                # Pause if requested for debugging
+                if self.config.pause_after_literature_review:
+                    framework_logger.warning("Pausing after literature review as requested")
+                    framework_logger.warning("Set config.pause_after_literature_review=False to continue")
+                    return
 
             # TODO: Make this async
             hypotheses_to_generate = max(0, n_hypotheses - self.state_manager.total_hypotheses)
@@ -373,6 +397,16 @@ class CoscientistFramework:
             
         except Exception as e:
             framework_logger.error(f"Critical error during startup phase: {str(e)}", exc_info=True)
+            
+            # Save checkpoint on error if configured
+            if self.config.save_on_error:
+                try:
+                    framework_logger.info("Attempting to save error checkpoint...")
+                    checkpoint_path = self.state_manager._state.save()
+                    framework_logger.info(f"Error checkpoint saved to: {checkpoint_path}")
+                except Exception as save_error:
+                    framework_logger.error(f"Failed to save error checkpoint: {save_error}")
+            
             self.progress_tracker.report_error(
                 f"Error during startup phase: {str(e)}",
                 error_info=str(e)
