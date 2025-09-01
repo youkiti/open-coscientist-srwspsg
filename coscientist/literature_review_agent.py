@@ -25,6 +25,11 @@ from coscientist.common import load_prompt
 lit_review_logger = logging.getLogger('coscientist.literature_review')
 gpt_researcher_logger = logging.getLogger('coscientist.gpt_researcher')
 
+# Timeouts and retry controls to prevent infinite waits
+RESEARCH_TIMEOUT_SECONDS = int(os.environ.get("COSCI_RESEARCH_TIMEOUT_SECONDS", "420"))
+WRITE_TIMEOUT_SECONDS = int(os.environ.get("COSCI_WRITE_TIMEOUT_SECONDS", "240"))
+RESEARCH_MAX_RETRIES = int(os.environ.get("COSCI_RESEARCH_MAX_RETRIES", "0"))
+
 
 class LiteratureReviewState(TypedDict):
     """State for the literature review agent."""
@@ -130,31 +135,59 @@ async def _write_subtopic_report(subtopic: str, main_goal: str) -> str:
     gpt_researcher_logger.debug("GPTResearcher instance created")
 
     # Conduct research and generate report
-    try:
-        gpt_researcher_logger.info(f"Conducting research phase for: {subtopic[:50]}...")
-        start_time = datetime.now()
-        
-        await researcher.conduct_research()
-        
-        research_elapsed = (datetime.now() - start_time).total_seconds()
-        gpt_researcher_logger.info(f"Research phase completed in {research_elapsed:.1f}s")
-        
-        gpt_researcher_logger.info("Writing research report...")
-        report_start = datetime.now()
-        
-        report = await researcher.write_report()
-        
-        report_elapsed = (datetime.now() - report_start).total_seconds()
-        total_elapsed = (datetime.now() - start_time).total_seconds()
-        
-        gpt_researcher_logger.info(f"Report written in {report_elapsed:.1f}s (total: {total_elapsed:.1f}s)")
-        gpt_researcher_logger.debug(f"Report length: {len(report)} characters")
-        
-        return report
-        
-    except Exception as e:
-        gpt_researcher_logger.error(f"Error researching subtopic '{subtopic[:50]}...': {str(e)}", exc_info=True)
-        raise
+    attempts = RESEARCH_MAX_RETRIES + 1
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            gpt_researcher_logger.info(
+                f"Conducting research phase for: {subtopic[:50]}... (attempt {attempt}/{attempts})"
+            )
+            start_time = datetime.now()
+            await asyncio.wait_for(
+                researcher.conduct_research(), timeout=RESEARCH_TIMEOUT_SECONDS
+            )
+
+            research_elapsed = (datetime.now() - start_time).total_seconds()
+            gpt_researcher_logger.info(
+                f"Research phase completed in {research_elapsed:.1f}s"
+            )
+
+            gpt_researcher_logger.info("Writing research report...")
+            report_start = datetime.now()
+            report = await asyncio.wait_for(
+                researcher.write_report(), timeout=WRITE_TIMEOUT_SECONDS
+            )
+
+            report_elapsed = (datetime.now() - report_start).total_seconds()
+            total_elapsed = (datetime.now() - start_time).total_seconds()
+            gpt_researcher_logger.info(
+                f"Report written in {report_elapsed:.1f}s (total: {total_elapsed:.1f}s)"
+            )
+            gpt_researcher_logger.debug(
+                f"Report length: {len(report)} characters"
+            )
+            return report
+        except asyncio.TimeoutError as e:
+            last_error = e
+            gpt_researcher_logger.error(
+                f"Timeout during research/report for subtopic '{subtopic[:50]}...' "
+                f"on attempt {attempt}/{attempts}",
+                exc_info=True,
+            )
+        except Exception as e:
+            last_error = e
+            gpt_researcher_logger.error(
+                f"Error researching subtopic '{subtopic[:50]}...' on attempt {attempt}/{attempts}: {str(e)}",
+                exc_info=True,
+            )
+
+    # If all attempts failed or timed out, return a placeholder so the system can continue
+    error_msg = (
+        f"Timed out or failed to research subtopic after {attempts} attempt(s). "
+        f"Subtopic: {subtopic[:100]}... Error: {str(last_error) if last_error else 'unknown'}"
+    )
+    gpt_researcher_logger.warning(error_msg)
+    return f"[Research unavailable due to timeout/error]\n\n{subtopic}\n\n{error_msg}"
 
 
 async def _parallel_research_node(
@@ -178,7 +211,18 @@ async def _parallel_research_node(
         lit_review_logger.info("Executing research tasks in parallel...")
         start_time = datetime.now()
         
-        subtopic_reports = await asyncio.gather(*research_tasks)
+        subtopic_reports = await asyncio.gather(*research_tasks, return_exceptions=True)
+        # Convert any exceptions to placeholder strings to avoid aborting the whole phase
+        clean_reports: list[str] = []
+        for idx, r in enumerate(subtopic_reports):
+            if isinstance(r, Exception):
+                err_text = (
+                    f"[Research task failed]\n\n{subtopics[idx]}\n\n{str(r)}"
+                )
+                clean_reports.append(err_text)
+            else:
+                clean_reports.append(r)
+        subtopic_reports = clean_reports
         
         elapsed = (datetime.now() - start_time).total_seconds()
         lit_review_logger.info(f"All research tasks completed in {elapsed:.1f}s")

@@ -494,6 +494,19 @@ class CoscientistStateManager:
         """
         return len(self._state.reflection_queue) == 0
 
+    def get_recent_actions(self, n: int = 5) -> list[str]:
+        """
+        Get the most recent actions taken by the supervisor.
+
+        Parameters
+        ----------
+        n : int
+            Number of recent actions to return (default: 5)
+        """
+        if n <= 0:
+            return []
+        return self._state.actions[-n:]
+
     @_maybe_save(n=1)
     def add_generated_hypothesis(
         self, hypothesis: Union[IndependentState, CollaborativeState]

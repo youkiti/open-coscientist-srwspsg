@@ -34,6 +34,11 @@ from langgraph.graph import END, StateGraph
 from coscientist.common import load_prompt
 from coscientist.custom_types import ParsedHypothesis, ReviewedHypothesis
 
+# Timeouts and retry controls to prevent infinite waits during web research
+RESEARCH_TIMEOUT_SECONDS = int(os.environ.get("COSCI_RESEARCH_TIMEOUT_SECONDS", "420"))
+WRITE_TIMEOUT_SECONDS = int(os.environ.get("COSCI_WRITE_TIMEOUT_SECONDS", "240"))
+RESEARCH_MAX_RETRIES = int(os.environ.get("COSCI_RESEARCH_MAX_RETRIES", "0"))
+
 
 class ReflectionState(TypedDict):
     """
@@ -399,9 +404,28 @@ async def _write_assumption_research_report(assumption_evaluation_query: str) ->
         config_path=os.path.join(os.path.dirname(__file__), "researcher_config.json"),
     )
 
-    # Conduct research and generate report
-    _ = await researcher.conduct_research()
-    return await researcher.write_report()
+    # Conduct research and generate report with timeout and limited retries
+    attempts = RESEARCH_MAX_RETRIES + 1
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            await asyncio.wait_for(
+                researcher.conduct_research(), timeout=RESEARCH_TIMEOUT_SECONDS
+            )
+            return await asyncio.wait_for(
+                researcher.write_report(), timeout=WRITE_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError as e:
+            last_error = e
+        except Exception as e:
+            last_error = e
+        # Only loop if retries remain
+    # Fallback placeholder on failure
+    return (
+        "[Assumption research unavailable due to timeout/error]\n\n"
+        f"Query: {assumption_evaluation_query[:200]}...\n"
+        f"Error: {str(last_error) if last_error else 'unknown'}"
+    )
 
 
 def _parallel_assumption_research_node(
@@ -428,7 +452,7 @@ def _parallel_assumption_research_node(
             research_tasks.append(task)
 
         # Execute all research tasks in parallel
-        return await asyncio.gather(*research_tasks)
+        return await asyncio.gather(*research_tasks, return_exceptions=True)
 
     # Run the async operations synchronously
     try:
@@ -439,7 +463,12 @@ def _parallel_assumption_research_node(
     # Organize results by assumption
     assumption_research_results = {}
     for assumption, result in zip(parsed_assumptions.keys(), research_results):
-        assumption_research_results[assumption] = result
+        if isinstance(result, Exception):
+            assumption_research_results[assumption] = (
+                f"[Assumption research task failed]\n\nError: {str(result)}"
+            )
+        else:
+            assumption_research_results[assumption] = result
 
     return {"_assumption_research_results": assumption_research_results}
 

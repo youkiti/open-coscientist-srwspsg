@@ -5,6 +5,7 @@ by a supervisor agent.
 """
 
 import logging
+import os
 import math
 import random
 
@@ -131,12 +132,13 @@ class CoscientistConfig:
             "claude-opus-4-1-20250805"
         ],
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-small", dimensions=256
+            model="text-embedding-3-small", dimensions=256, batch_size=64
         ),
         specialist_fields: list[str] | None = None,
         debug_mode: bool = False,
         pause_after_literature_review: bool = False,
         save_on_error: bool = True,
+        max_supervisor_iterations: int = 50,
     ):
         # TODO: Add functionality for overriding GPTResearcher config.
         self.literature_review_agent_llm = literature_review_agent_llm
@@ -154,6 +156,7 @@ class CoscientistConfig:
         self.debug_mode = debug_mode
         self.pause_after_literature_review = pause_after_literature_review
         self.save_on_error = save_on_error
+        self.max_supervisor_iterations = max_supervisor_iterations
 
 
 class CoscientistFramework:
@@ -675,6 +678,16 @@ class CoscientistFramework:
                 iteration += 1
                 framework_logger.info(f"\n--- Supervisor Decision Iteration {iteration} ---")
                 
+                # Hard stop to prevent infinite loops
+                if iteration > self.config.max_supervisor_iterations:
+                    msg = (
+                        f"Maximum supervisor iterations exceeded ({self.config.max_supervisor_iterations}). "
+                        "Aborting to prevent infinite loop."
+                    )
+                    framework_logger.error(msg)
+                    self.progress_tracker.report_error(msg)
+                    raise RuntimeError(msg)
+                
                 initial_supervisor_state = self.state_manager.next_supervisor_state()
                 framework_logger.debug(f"Available actions: {self.available_actions()}")
                 
@@ -690,6 +703,25 @@ class CoscientistFramework:
                 ), f"Invalid action: {current_action}. Available actions: {self.available_actions()}"
                 self.state_manager.update_supervisor_decision(final_supervisor_state)
                 self.state_manager.add_action(current_action)
+                
+                # Detect repeated identical decisions as a stall signal
+                try:
+                    repeat_window = int(os.environ.get("COSCI_REPEAT_ACTION_LIMIT", "6"))
+                except Exception:
+                    repeat_window = 6
+                recent_actions = self.state_manager.get_recent_actions(repeat_window)
+                if (
+                    repeat_window > 0
+                    and len(recent_actions) == repeat_window
+                    and all(a == recent_actions[0] for a in recent_actions)
+                ):
+                    msg = (
+                        f"Detected {repeat_window} repeated supervisor decisions ('{recent_actions[0]}'). "
+                        "Aborting to avoid infinite loop."
+                    )
+                    framework_logger.error(msg)
+                    self.progress_tracker.report_error(msg)
+                    raise RuntimeError(msg)
                 
                 # Update progress before executing action
                 self.progress_tracker.update_phase_progress(

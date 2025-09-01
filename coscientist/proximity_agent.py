@@ -14,7 +14,7 @@ from coscientist.custom_types import ParsedHypothesis
 
 def create_embedding(text: str, dimensions: int = 256) -> np.ndarray:
     """Create a vector embedding for a text."""
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small", dimensions=dimensions)
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small", dimensions=dimensions, batch_size=64)
     return np.array(embeddings.embed_query(text))
 
 
