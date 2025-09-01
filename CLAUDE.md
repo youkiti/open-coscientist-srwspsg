@@ -25,6 +25,12 @@ pip install -e .[dev]
 # - LANGSMITH_API_KEY (optional, for monitoring)
 ```
 
+### Start Test Run in Viewer
+- Open the Streamlit viewer and use the "🧪 Start Test Run" button at the top.
+- It uses the last confirmed refined goal (CQ) saved at `~/.coscientist/last_confirmed_goal.txt`.
+- The panel shows PID, recent log tail, status (running/done/error), and a Stop control.
+- The last confirmed goal is saved automatically when the Configuration Agent completes; selecting a goal in the sidebar also works as fallback.
+
 ### Running the Application
 ```bash
 # Launch Streamlit web interface
@@ -136,6 +142,7 @@ Each agent is implemented as a LangGraph node with specific responsibilities:
 - Modular page architecture with dedicated files for each view
 - Real-time monitoring of research progress
 - Interactive visualization of tournament results and hypothesis relationships
+- Quick debug: "Start Test Run" button to launch agents using the last confirmed CQ (refined goal)
 
 **Background Processing (`app/background.py`)**  
 - Handles long-running research sessions
@@ -150,7 +157,7 @@ The system requires `.env` file with API keys. The `load_dotenv()` call in `cosc
 - OpenAI: Uses both standard LangChain client and custom `openai_client.py` for GPT-5 responses.create() API
 - Anthropic: Standard LangChain integration for Claude models
 - Google: LangChain integration for Gemini models
-- All clients configured with proper retry logic and token limits
+- Configured with retry logic and explicit timeouts/loop breakers where applicable
 
 ### State Persistence
 Research sessions automatically save state to disk. State files include:
@@ -170,6 +177,36 @@ Default parameters in `researcher_config.json` control:
 - Token limits and search parameters
 - Research depth and breadth settings
 - Output formatting preferences
+
+## Recent Stability Updates
+
+### Loop Breakers and Timeouts
+- Supervisor loop safeguards:
+  - Max iteration cap (default 50) via `CoscientistConfig(max_supervisor_iterations=...)`.
+  - Repeated-action detector via env `COSCI_REPEAT_ACTION_LIMIT` (default 6) to abort if the same decision repeats.
+- GPT Researcher calls (Tavily/web) use explicit async timeouts and lightweight retries:
+  - `COSCI_RESEARCH_TIMEOUT_SECONDS` (default 420)
+  - `COSCI_WRITE_TIMEOUT_SECONDS` (default 240)
+  - `COSCI_RESEARCH_MAX_RETRIES` (default 0)
+- On timeout/error, agents return placeholder text so the pipeline continues instead of hanging.
+
+### Embedding Pipeline Limits
+- To avoid OpenAI Embedding API token overflows:
+  - `EMBEDDING_CHUNK_SIZE` set to 800 and `EMBEDDING_KWARGS.chunk_size=800` in `coscientist/researcher_config.json`.
+  - Do not pass `batch_size` to `OpenAIEmbeddings` (some SDK versions reject it). Leave batching to the library defaults.
+- Proximity embeddings use `text-embedding-3-small` with 256 dimensions.
+
+### Test Run Button
+- Viewer adds a "Start Test Run" button (top of page) for fast debugging with the last confirmed refined goal (CQ).
+- The last goal is persisted at `~/.coscientist/last_confirmed_goal.txt` by `app/common.py` when Configuration completes.
+
+## Quick Troubleshooting
+- Error: `Embeddings.create() got an unexpected keyword argument 'batch_size'`
+  - Remove `batch_size` from `OpenAIEmbeddings(...)` and from `EMBEDDING_KWARGS`.
+- Error: `Requested N tokens, max 300000 tokens per request`
+  - Lower `EMBEDDING_CHUNK_SIZE` to 512 (or less); avoid sending too many large chunks in one call.
+- Viewer run hangs on Tavily/web fetch
+  - Use the timeout envs above; check log tail in the viewer; set `COSCI_REPEAT_ACTION_LIMIT` smaller to break sooner.
 
 ### Order
 - Use `test/` folder for test codes.

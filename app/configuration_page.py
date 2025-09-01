@@ -21,6 +21,7 @@ from coscientist.configuration_agent import ConfigurationChatManager
 
 # Import coscientist framework components
 from coscientist.global_state import CoscientistState
+from common import save_last_confirmed_goal
 
 
 def get_llm_options():
@@ -174,6 +175,11 @@ def display_configuration_page():
             st.success("🎉 Configuration complete!")
             refined_goal = st.session_state.chat_manager.get_refined_goal()
             st.session_state.refined_goal = refined_goal
+            # Persist the last confirmed goal for quick test runs in the viewer
+            try:
+                save_last_confirmed_goal(refined_goal)
+            except Exception:
+                pass
 
             st.markdown("### 🎯 Final Refined Goal")
             st.markdown(f"**{refined_goal}**")

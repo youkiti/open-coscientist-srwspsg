@@ -1,4 +1,5 @@
 import os
+import multiprocessing
 
 import streamlit as st
 
@@ -7,7 +8,14 @@ from common import (
     get_available_states,
     load_coscientist_state,
     load_coscientist_state_by_goal,
+    load_last_confirmed_goal,
 )
+from background import (
+    coscientist_process_target,
+    check_coscientist_status,
+    cleanup_coscientist_run,
+)
+from coscientist.global_state import CoscientistState
 from configuration_page import display_configuration_page
 from final_report_page import display_final_report_page
 from literature_review_page import display_literature_review_page
@@ -40,6 +48,113 @@ page = st.sidebar.selectbox(
 
 def main():
     st.title("🧪 Coscientist Viewer")
+
+    # --- Quick Test Run (uses last confirmed CQ/refined goal) ---
+    if "test_run_running" not in st.session_state:
+        st.session_state.test_run_running = False
+    if "test_run_process" not in st.session_state:
+        st.session_state.test_run_process = None
+    if "test_run_goal" not in st.session_state:
+        st.session_state.test_run_goal = None
+    if "test_run_error" not in st.session_state:
+        st.session_state.test_run_error = None
+
+    with st.container():
+        st.markdown("### 🧪 Start Test Run")
+        st.caption("Runs agents assuming the last confirmed CQ (refined goal).")
+
+        # Determine default goal for test run
+        default_goal = load_last_confirmed_goal()
+        if not default_goal:
+            # Fallback to current selection if available
+            default_goal = st.session_state.get("current_file")
+
+        col_a, col_b = st.columns([1, 3])
+        with col_a:
+            start_clicked = st.button("▶️ Start Test Run", type="primary")
+        with col_b:
+            st.write(
+                f"Default goal: {default_goal if default_goal else 'Not found. Select a goal in the sidebar.'}"
+            )
+
+        if start_clicked and not st.session_state.test_run_running:
+            if not default_goal:
+                st.warning(
+                    "No confirmed goal found. Complete Configuration or select a goal in the sidebar."
+                )
+            else:
+                try:
+                    process = multiprocessing.Process(
+                        target=coscientist_process_target, args=(default_goal,)
+                    )
+                    process.start()
+                    st.session_state.test_run_process = process
+                    st.session_state.test_run_running = True
+                    st.session_state.test_run_goal = default_goal
+                    st.success(f"Test run started (PID: {process.pid})")
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.test_run_error = str(e)
+                    st.error(f"Failed to start test run: {e}")
+
+        # Status/Control panel for active test run
+        if st.session_state.test_run_running and st.session_state.test_run_goal:
+            goal = st.session_state.test_run_goal
+            process = st.session_state.test_run_process
+            st.info(
+                f"Running for goal: {goal} — PID: {process.pid if process else 'N/A'} — Alive: {process.is_alive() if process else 'N/A'}"
+            )
+
+            # Show last few log lines if available
+            goal_hash = CoscientistState._hash_goal(goal)
+            output_dir = os.path.join(
+                os.environ.get("COSCIENTIST_DIR", os.path.expanduser("~/.coscientist")),
+                goal_hash,
+            )
+            log_file = os.path.join(output_dir, "process.log")
+            if os.path.exists(log_file):
+                try:
+                    with open(log_file, "r") as f:
+                        lines = f.readlines()
+                        if lines:
+                            st.text("Recent log entries:")
+                            for line in lines[-5:]:
+                                st.text(line.strip())
+                except Exception as e:
+                    st.warning(f"Could not read log file: {e}")
+
+            # Check status controls
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("🔄 Refresh"):
+                    st.rerun()
+            with col2:
+                if st.button("⏹ Stop Test Run"):
+                    try:
+                        if process and process.is_alive():
+                            process.terminate()
+                        cleanup_coscientist_run(goal)
+                    except Exception:
+                        pass
+                    st.session_state.test_run_running = False
+                    st.session_state.test_run_process = None
+                    st.session_state.test_run_goal = None
+                    st.rerun()
+            with col3:
+                # Show background status
+                status = check_coscientist_status(goal)
+                if status == "done":
+                    st.success("Test run completed.")
+                    st.session_state.test_run_running = False
+                    st.session_state.test_run_process = None
+                    st.session_state.test_run_goal = None
+                elif status.startswith("error:"):
+                    st.error(f"Test run failed: {status.replace('error: ', '')}")
+                    st.session_state.test_run_running = False
+                    st.session_state.test_run_process = None
+                    st.session_state.test_run_goal = None
+                else:
+                    st.info("Status: running")
 
     # Initialize session state for file selection
     if "current_file" not in st.session_state:

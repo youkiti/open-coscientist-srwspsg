@@ -28,7 +28,7 @@
     "PROMPT_FAMILY": "default",
     "LLM_KWARGS": {"max_tokens": 20000},
     "EMBEDDING_CHUNK_SIZE": 800,
-    "EMBEDDING_KWARGS": {"chunk_size": 800, "batch_size": 64},
+    "EMBEDDING_KWARGS": {"chunk_size": 800},
     "VERBOSE": false,
     "DEEP_RESEARCH_BREADTH": 3,
     "DEEP_RESEARCH_DEPTH": 2,
@@ -37,5 +37,15 @@
     "MCP_AUTO_TOOL_SELECTION": true,
     "MCP_ALLOWED_ROOT_PATHS": [],
     "MCP_STRATEGY": "fast",
-    "REASONING_EFFORT": "medium"
+    "REASONING_EFFORT": "medium",
+    "PDF_CACHE_DIR": "",
+    "PDF_DOWNLOAD_TIMEOUT": 30,
+    "PDF_FALLBACK_TO_ABSTRACT": true,
+    "PDF_MAX_SIZE_MB": 50,
+    "PDF_MAX_PAGES": 50,
+    "PDF_CHUNK_SIZE": 2000,
+    "PDF_OVERLAP_SIZE": 200,
+    "PDF_PERSISTENT_CACHE": false,
+    "PDF_CLEANUP_ON_EXIT": true,
+    "PDF_MAX_AGE_HOURS": 24
 }

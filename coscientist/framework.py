@@ -132,7 +132,7 @@ class CoscientistConfig:
             "claude-opus-4-1-20250805"
         ],
         proximity_agent_embedding_model: Embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-small", dimensions=256, batch_size=64
+            model="text-embedding-3-small", dimensions=256
         ),
         specialist_fields: list[str] | None = None,
         debug_mode: bool = False,
