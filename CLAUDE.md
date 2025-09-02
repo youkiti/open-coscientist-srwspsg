@@ -31,6 +31,37 @@ pip install -e .[dev]
 - The panel shows PID, recent log tail, status (running/done/error), and a Stop control.
 - The last confirmed goal is saved automatically when the Configuration Agent completes; selecting a goal in the sidebar also works as fallback.
 
+### CLI Testing (Headless, Post-Configuration)
+
+For granular, headless debugging of phases after goal confirmation, use the CLI harness:
+
+```bash
+# Help
+python -m coscientist.cli --help   # or `cosci --help` after pip install -e .
+
+# Create fresh state dir for a goal
+cosci new --goal "Your goal here"
+
+# Initial pipeline (LR → gen → tournament → meta-review)
+cosci start --goal "Your goal here" --n 4 --pause-after-lr  # pause after LR to inspect
+
+# Single step (targeted)
+cosci step --goal "Your goal here" --action generate_new_hypotheses --n 2
+cosci step --goal "Your goal here" --action reflect
+cosci step --goal "Your goal here" --action run_tournament -k 8
+
+# Full supervisor loop with cap
+cosci run --goal "Your goal here" --max-iter 10
+
+# List and resume from checkpoints
+cosci checkpoints --goal "Your goal here"
+cosci start --goal "Your goal here" --checkpoint-path /path/to/coscientist_state_*.pkl
+```
+
+Notes:
+- Set provider/search keys as needed: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `TAVILY_API_KEY`.
+- The `reflect` action processes the verification queue and updates proximity graph.
+
 ### Running the Application
 ```bash
 # Launch Streamlit web interface

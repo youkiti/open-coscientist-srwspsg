@@ -261,6 +261,30 @@ class CoscientistFramework:
                 )
                 self.state_manager.advance_reviewed_hypothesis()
 
+    async def reflect(self) -> None:
+        """
+        Process the reflection queue and update proximity graph.
+
+        Exposed as an action for targeted debugging/CLI usage.
+        """
+        framework_logger.info("=== PHASE: REFLECTION/VERIFICATION ===")
+        self.progress_tracker.start_phase(
+            ProgressPhase.REFLECTION,
+            "Processing hypotheses in reflection queue through deep verification"
+        )
+
+        if self.state_manager.reflection_queue_is_empty:
+            framework_logger.info("Reflection queue is empty; nothing to verify")
+            self.progress_tracker.complete_phase("No items in reflection queue")
+            return
+
+        self.process_reflection_queue()
+        self.state_manager.update_proximity_graph_edges()
+
+        self.progress_tracker.complete_phase(
+            "Reflection completed; proximity graph updated"
+        )
+
     def _generate_new_hypothesis(self) -> None:
         """
         Run the hypothesis generation for a given mode and config.
@@ -647,6 +671,7 @@ class CoscientistFramework:
         """
         return [
             "generate_new_hypotheses",
+            "reflect",
             "evolve_hypotheses",
             "expand_literature_review",
             "run_tournament",

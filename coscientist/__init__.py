@@ -106,5 +106,10 @@ def setup_logging():
 # Initialize logging when module is imported
 SESSION_ID = setup_logging()
 
-from coscientist.framework import CoscientistConfig, CoscientistFramework
-from coscientist.global_state import CoscientistState, CoscientistStateManager
+# Optional re-exports for convenience; safely skipped if heavy deps missing.
+try:  # pragma: no cover - optional import convenience
+    from coscientist.framework import CoscientistConfig, CoscientistFramework
+    from coscientist.global_state import CoscientistState, CoscientistStateManager
+except Exception:
+    # Defer import errors until actual usage in runtime code
+    pass

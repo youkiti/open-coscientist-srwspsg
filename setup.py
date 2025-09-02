@@ -42,6 +42,11 @@ setup(
         "networkx>=3.5",
         "scikit-learn>=1.7.0",
     ],
+    entry_points={
+        "console_scripts": [
+            "cosci=coscientist.cli:main",
+        ]
+    },
     extras_require={
         "dev": [
             "pytest>=7.0.0",

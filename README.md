@@ -17,6 +17,26 @@ This implementation uses `Gemini 2.5 Pro`, `Claude Sonnet 4`, and `o3` in collab
 - **Supervisor Agent**: Orchestrates the entire research workflow -- decides which actions to take next and when to finish the research.
 - **Final Report Agent**: Generates comprehensive research summaries
 
+## CLI Testing (Post-Configuration)
+
+Use the lightweight CLI harness to debug steps after goal confirmation without the UI.
+
+- Help: `python -m coscientist.cli --help` (or `cosci --help` after `pip install -e .`)
+- Create fresh goal dir: `cosci new --goal "Your goal here"`
+- Initial pipeline (literature review → generation → tournament → meta-review):
+  - `cosci start --goal "Your goal here" --n 4 [--pause-after-lr]`
+- Single step (targeted):
+  - Generate: `cosci step --goal "Your goal here" --action generate_new_hypotheses --n 2`
+  - Reflect: `cosci step --goal "Your goal here" --action reflect`
+  - Tournament: `cosci step --goal "Your goal here" --action run_tournament -k 8`
+- Full loop: `cosci run --goal "Your goal here" --max-iter 10`
+- Checkpoints: `cosci checkpoints --goal "Your goal here"`
+- Resume from checkpoint: add `--checkpoint-path /path/to/coscientist_state_*.pkl`
+
+Notes:
+- Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `TAVILY_API_KEY` as needed.
+- The CLI warns if keys are missing; phases using LLMs/GPTResearcher will fail otherwise.
+
 ### Tournament-Style Hypothesis Competition
 - **ELO Rating System**: Ranks hypotheses through head-to-head competitive analysis
 - **Debate Transcripts**: Full records of why one hypothesis outperforms another
