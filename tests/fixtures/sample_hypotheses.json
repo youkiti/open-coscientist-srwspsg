@@ -1,0 +1,246 @@
+{
+  "alzheimers_hypotheses": [
+    {
+      "id": 1,
+      "hypothesis": "Amyloid-beta oligomers cause synaptic dysfunction through NMDA receptor disruption",
+      "reasoning": "Soluble Aβ oligomers bind to synaptic membranes and alter glutamate receptor function, leading to synaptic depression and eventual synapse loss before plaque formation",
+      "confidence": 0.85,
+      "assumptions": [
+        "Oligomers are more toxic than plaques",
+        "NMDA receptors are primary targets",
+        "Synaptic dysfunction precedes cell death"
+      ],
+      "testing_approach": "Electrophysiology recordings in hippocampal slices treated with Aβ oligomers, combined with NMDA receptor antagonist studies",
+      "observables": [
+        "Long-term potentiation impairment",
+        "NMDA receptor current reduction",
+        "Dendritic spine loss"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 2,
+      "hypothesis": "Tau hyperphosphorylation disrupts axonal transport leading to synaptic failure",
+      "reasoning": "Phosphorylated tau loses microtubule binding affinity, causing transport deficits of essential proteins and organelles to synapses",
+      "confidence": 0.90,
+      "assumptions": [
+        "Transport deficits are causal to synaptic loss",
+        "Tau phosphorylation is upstream event",
+        "Microtubule binding is critical for transport"
+      ],
+      "testing_approach": "Live cell imaging of axonal transport in tau transgenic neurons with quantification of cargo movement",
+      "observables": [
+        "Reduced transport velocity",
+        "Increased transport stalling",
+        "Synaptic protein depletion"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 3,
+      "hypothesis": "APOE4 reduces microglial amyloid clearance through altered lipidation",
+      "reasoning": "APOE4 variant has different lipid binding properties that impair microglial phagocytosis and amyloid degradation pathways",
+      "confidence": 0.75,
+      "assumptions": [
+        "Microglial clearance is rate-limiting",
+        "Lipidation affects phagocytic function",
+        "APOE4 effects are cell-autonomous"
+      ],
+      "testing_approach": "Comparative phagocytosis assays using APOE3 vs APOE4 expressing microglia with fluorescent amyloid",
+      "observables": [
+        "Phagocytosis efficiency",
+        "Amyloid degradation rate",
+        "Microglial activation state"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 4,
+      "hypothesis": "Neuroinflammation amplifies pathology through complement cascade activation",
+      "reasoning": "Chronic microglial activation triggers complement system, creating positive feedback loop that accelerates neuronal damage",
+      "confidence": 0.70,
+      "assumptions": [
+        "Complement activation is pathogenic",
+        "Inflammation is sustained chronically",
+        "Positive feedback loop exists"
+      ],
+      "testing_approach": "Complement inhibitor studies in AD mouse models with longitudinal pathology assessment",
+      "observables": [
+        "Complement protein levels",
+        "Microglial morphology",
+        "Neuronal loss rate"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    }
+  ],
+  "battery_hypotheses": [
+    {
+      "id": 1,
+      "hypothesis": "Solid-state ceramic electrolytes enable stable lithium metal anodes",
+      "reasoning": "Rigid ceramic structure provides mechanical barrier preventing dendrite penetration while maintaining high ionic conductivity",
+      "confidence": 0.88,
+      "assumptions": [
+        "Interface stability can be achieved",
+        "Manufacturing is scalable",
+        "Cost can be reduced"
+      ],
+      "testing_approach": "Long-term cycling tests comparing ceramic vs polymer vs liquid electrolytes with lithium metal",
+      "observables": [
+        "Dendrite formation",
+        "Cycle life",
+        "Coulombic efficiency"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 2,
+      "hypothesis": "Silicon nanowire anodes achieve 10x capacity through strain accommodation",
+      "reasoning": "One-dimensional nanowire geometry accommodates volume expansion without pulverization, maintaining electrical contact",
+      "confidence": 0.75,
+      "assumptions": [
+        "Nanowire synthesis is scalable",
+        "SEI formation is controlled",
+        "Binder adhesion is maintained"
+      ],
+      "testing_approach": "Electrochemical cycling with in-situ SEM to observe structural changes during lithiation",
+      "observables": [
+        "Capacity retention",
+        "Volume expansion",
+        "Electrical connectivity"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 3,
+      "hypothesis": "High-nickel cathodes enable 300+ Wh/kg with thermal management",
+      "reasoning": "NCM90 and similar high-nickel chemistries provide high voltage and capacity but require thermal control to prevent degradation",
+      "confidence": 0.80,
+      "assumptions": [
+        "Thermal runaway can be prevented",
+        "Nickel dissolution is manageable",
+        "Electrolyte stability is sufficient"
+      ],
+      "testing_approach": "Calorimetry and cycling studies of high-nickel cells with advanced thermal management systems",
+      "observables": [
+        "Energy density",
+        "Thermal stability",
+        "Capacity fade rate"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    }
+  ],
+  "climate_hypotheses": [
+    {
+      "id": 1,
+      "hypothesis": "Renewable energy transition can reduce emissions by 70% within 20 years",
+      "reasoning": "Solar and wind costs have reached grid parity globally, enabling rapid deployment with supporting storage and grid infrastructure",
+      "confidence": 0.85,
+      "assumptions": [
+        "Storage costs continue declining",
+        "Grid infrastructure can adapt",
+        "Political support remains strong"
+      ],
+      "testing_approach": "Integrated assessment modeling of renewable deployment scenarios with economic and technical constraints",
+      "observables": [
+        "Deployment rates",
+        "System costs",
+        "Grid stability metrics"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 2,
+      "hypothesis": "Nature-based solutions provide 30% of mitigation at lowest cost",
+      "reasoning": "Forest restoration, soil carbon, and wetland protection offer high sequestration potential with immediate availability and co-benefits",
+      "confidence": 0.78,
+      "assumptions": [
+        "Land availability is sufficient",
+        "Permanence can be ensured",
+        "Co-benefits are valued"
+      ],
+      "testing_approach": "Meta-analysis of sequestration rates across ecosystems with economic valuation of co-benefits",
+      "observables": [
+        "Carbon sequestration rates",
+        "Land use changes",
+        "Biodiversity impacts"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 3,
+      "hypothesis": "Carbon pricing at $100/tonne drives optimal mitigation investment",
+      "reasoning": "Economic theory suggests carbon pricing internalizes externalities and drives least-cost emission reductions across sectors",
+      "confidence": 0.80,
+      "assumptions": [
+        "Political feasibility exists",
+        "Border adjustments prevent leakage",
+        "Revenue recycling is efficient"
+      ],
+      "testing_approach": "Comparative analysis of carbon pricing implementations with econometric modeling of investment responses",
+      "observables": [
+        "Emission reduction rates",
+        "Investment patterns",
+        "Economic impacts"
+      ],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    }
+  ],
+  "simple_hypotheses": [
+    {
+      "id": 1,
+      "hypothesis": "Simple hypothesis A",
+      "reasoning": "Basic reasoning for A",
+      "confidence": 0.8,
+      "assumptions": ["Assumption A1", "Assumption A2"],
+      "testing_approach": "Test approach A",
+      "observables": ["Observable A1", "Observable A2"],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    },
+    {
+      "id": 2,
+      "hypothesis": "Simple hypothesis B", 
+      "reasoning": "Basic reasoning for B",
+      "confidence": 0.7,
+      "assumptions": ["Assumption B1"],
+      "testing_approach": "Test approach B",
+      "observables": ["Observable B1"],
+      "elo_rating": 1500.0,
+      "wins": 0,
+      "losses": 0,
+      "head_to_head_results": {}
+    }
+  ]
+}

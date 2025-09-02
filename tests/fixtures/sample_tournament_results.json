@@ -1,0 +1,195 @@
+{
+  "alzheimers_tournament": {
+    "matches": [
+      {
+        "match_id": 1,
+        "hypothesis_a": {
+          "id": 1,
+          "hypothesis": "Amyloid-beta oligomers cause synaptic dysfunction"
+        },
+        "hypothesis_b": {
+          "id": 2, 
+          "hypothesis": "Tau hyperphosphorylation disrupts axonal transport"
+        },
+        "winner": "B",
+        "reasoning": "Hypothesis B provides stronger mechanistic evidence. Tau pathology correlates better with cognitive decline than amyloid burden in human studies. The transport disruption mechanism has been directly observed in multiple model systems.",
+        "debate_transcript": "**Judge Analysis:**\n\nBoth hypotheses address critical aspects of Alzheimer's pathogenesis.\n\n**Hypothesis A (Amyloid oligomers):**\n- Strong: Direct synaptic toxicity mechanism\n- Strong: Explains early synaptic loss\n- Weak: Clinical trials targeting amyloid have failed\n- Weak: Oligomer detection methods inconsistent\n\n**Hypothesis B (Tau transport):**\n- Strong: Correlates with cognitive symptoms\n- Strong: Transport deficits directly observable\n- Strong: Explains regional spread pattern\n- Weak: Unclear what triggers initial tau phosphorylation\n\n**Verdict:** Hypothesis B wins based on stronger correlation with clinical phenotype and more direct experimental evidence of mechanism.",
+        "confidence": 0.75
+      },
+      {
+        "match_id": 2,
+        "hypothesis_a": {
+          "id": 1,
+          "hypothesis": "Amyloid-beta oligomers cause synaptic dysfunction"
+        },
+        "hypothesis_b": {
+          "id": 3,
+          "hypothesis": "APOE4 reduces microglial amyloid clearance"
+        },
+        "winner": "A",
+        "reasoning": "Hypothesis A describes a direct pathogenic mechanism, while Hypothesis B describes a risk factor modulation. The synaptic toxicity of oligomers has more direct experimental support.",
+        "debate_transcript": "**Judge Analysis:**\n\n**Hypothesis A (Amyloid oligomers):**\n- Primary pathogenic mechanism\n- Direct toxicity evidence\n- Explains core disease features\n\n**Hypothesis B (APOE4 clearance):**\n- Important risk modifier\n- Explains genetic susceptibility\n- Indirect mechanism through clearance\n\n**Verdict:** A wins as it describes proximate cause rather than predisposing factor.",
+        "confidence": 0.65
+      },
+      {
+        "match_id": 3,
+        "hypothesis_a": {
+          "id": 2,
+          "hypothesis": "Tau hyperphosphorylation disrupts axonal transport"
+        },
+        "hypothesis_b": {
+          "id": 4,
+          "hypothesis": "Neuroinflammation amplifies pathology through complement"
+        },
+        "winner": "A",
+        "reasoning": "Tau transport disruption is a primary pathogenic mechanism with direct evidence, while neuroinflammation appears to be more of an amplifying factor. The tau hypothesis better explains the progressive nature and anatomical pattern of the disease.",
+        "debate_transcript": "**Judge Analysis:**\n\n**Hypothesis A (Tau transport):**\n- Primary mechanism of neurodegeneration\n- Explains progressive spread\n- Direct cellular consequences\n\n**Hypothesis B (Neuroinflammation):**\n- Amplifies existing pathology\n- Important but secondary role\n- Anti-inflammatory trials showed limited efficacy\n\n**Verdict:** A wins as primary mechanism versus amplifying factor.",
+        "confidence": 0.70
+      }
+    ],
+    "final_rankings": [
+      {
+        "hypothesis_id": 2,
+        "hypothesis": "Tau hyperphosphorylation disrupts axonal transport",
+        "elo_rating": 1545.0,
+        "wins": 2,
+        "losses": 0
+      },
+      {
+        "hypothesis_id": 1,
+        "hypothesis": "Amyloid-beta oligomers cause synaptic dysfunction",
+        "elo_rating": 1520.0,
+        "wins": 1,
+        "losses": 1
+      },
+      {
+        "hypothesis_id": 3,
+        "hypothesis": "APOE4 reduces microglial amyloid clearance",
+        "elo_rating": 1485.0,
+        "wins": 0,
+        "losses": 1
+      },
+      {
+        "hypothesis_id": 4,
+        "hypothesis": "Neuroinflammation amplifies pathology through complement",
+        "elo_rating": 1480.0,
+        "wins": 0,
+        "losses": 1
+      }
+    ]
+  },
+  "battery_tournament": {
+    "matches": [
+      {
+        "match_id": 1,
+        "hypothesis_a": {
+          "id": 1,
+          "hypothesis": "Solid-state ceramic electrolytes enable stable lithium metal anodes"
+        },
+        "hypothesis_b": {
+          "id": 2,
+          "hypothesis": "Silicon nanowire anodes achieve 10x capacity"
+        },
+        "winner": "A",
+        "reasoning": "Solid-state technology addresses multiple battery limitations simultaneously (safety, energy density, cycle life) while silicon nanowires primarily address capacity. The technology readiness level is also higher for solid-state.",
+        "debate_transcript": "**Technical Comparison:**\n\n**Hypothesis A (Solid-state):**\n- Addresses safety (no flammable electrolyte)\n- Enables lithium metal (theoretical max capacity)\n- Higher operating voltage\n- Proven in small scale applications\n\n**Hypothesis B (Silicon nanowires):**\n- 10x theoretical capacity improvement\n- Volume expansion still challenging\n- SEI instability remains issue\n- Manufacturing scalability unclear\n\n**Assessment:** Solid-state provides more comprehensive solution to battery limitations with clearer path to commercialization.",
+        "confidence": 0.80
+      },
+      {
+        "match_id": 2,
+        "hypothesis_a": {
+          "id": 1,
+          "hypothesis": "Solid-state ceramic electrolytes enable stable lithium metal anodes"
+        },
+        "hypothesis_b": {
+          "id": 3,
+          "hypothesis": "High-nickel cathodes enable 300+ Wh/kg with thermal management"
+        },
+        "winner": "A",
+        "reasoning": "While high-nickel cathodes offer incremental improvements, solid-state technology represents a paradigm shift enabling next-generation battery architecture. The energy density gains from lithium metal anodes exceed those from high-nickel cathodes.",
+        "debate_transcript": "**Energy Density Analysis:**\n\n**Hypothesis A (Solid-state):**\n- Lithium metal anode: 3860 mAh/g vs 372 mAh/g graphite\n- Higher voltage operation\n- System-level benefits (thinner separator)\n\n**Hypothesis B (High-nickel cathodes):**\n- Incremental capacity improvement (~20%)\n- Thermal management adds weight/complexity\n- Limited by anode capacity\n\n**Verdict:** Solid-state offers greater energy density potential through revolutionary rather than evolutionary approach.",
+        "confidence": 0.85
+      }
+    ],
+    "final_rankings": [
+      {
+        "hypothesis_id": 1,
+        "hypothesis": "Solid-state ceramic electrolytes enable stable lithium metal anodes",
+        "elo_rating": 1565.0,
+        "wins": 2,
+        "losses": 0
+      },
+      {
+        "hypothesis_id": 2,
+        "hypothesis": "Silicon nanowire anodes achieve 10x capacity",
+        "elo_rating": 1485.0,
+        "wins": 0,
+        "losses": 1
+      },
+      {
+        "hypothesis_id": 3,
+        "hypothesis": "High-nickel cathodes enable 300+ Wh/kg",
+        "elo_rating": 1480.0,
+        "wins": 0,
+        "losses": 1
+      }
+    ]
+  },
+  "climate_tournament": {
+    "matches": [
+      {
+        "match_id": 1,
+        "hypothesis_a": {
+          "id": 1,
+          "hypothesis": "Renewable energy transition can reduce emissions by 70% within 20 years"
+        },
+        "hypothesis_b": {
+          "id": 2,
+          "hypothesis": "Nature-based solutions provide 30% of mitigation at lowest cost"
+        },
+        "winner": "A",
+        "reasoning": "While nature-based solutions are important, renewable energy transition addresses the largest emission source (electricity/heat at 25% of global emissions) with proven technology that has already achieved cost competitiveness.",
+        "debate_transcript": "**Mitigation Potential Analysis:**\n\n**Hypothesis A (Renewable energy):**\n- Addresses 25% of global emissions directly\n- Technology costs have plummeted\n- Scalable deployment demonstrated\n- Creates economic incentives for adoption\n\n**Hypothesis B (Nature-based solutions):**\n- Cost-effective sequestration\n- Immediate implementation possible\n- Provides co-benefits (biodiversity, jobs)\n- Limited by land availability\n\n**Assessment:** Renewable energy transition offers larger, more scalable emission reductions with proven economic viability.",
+        "confidence": 0.75
+      },
+      {
+        "match_id": 2,
+        "hypothesis_a": {
+          "id": 1,
+          "hypothesis": "Renewable energy transition can reduce emissions by 70% within 20 years"
+        },
+        "hypothesis_b": {
+          "id": 3,
+          "hypothesis": "Carbon pricing at $100/tonne drives optimal mitigation investment"
+        },
+        "winner": "B",
+        "reasoning": "Carbon pricing is a policy mechanism that can drive renewable energy deployment and other mitigation strategies simultaneously. It addresses market failures comprehensively rather than focusing on a single technology.",
+        "debate_transcript": "**Policy vs Technology Focus:**\n\n**Hypothesis A (Renewable energy):**\n- Specific technology solution\n- Addresses power sector primarily\n- Market-driven deployment already occurring\n\n**Hypothesis B (Carbon pricing):**\n- Economy-wide policy instrument\n- Incentivizes least-cost abatement across all sectors\n- Generates revenue for additional investments\n- Addresses fundamental market failure\n\n**Verdict:** Carbon pricing wins as comprehensive policy framework that can accelerate renewable deployment while addressing other sectors.",
+        "confidence": 0.80
+      }
+    ],
+    "final_rankings": [
+      {
+        "hypothesis_id": 3,
+        "hypothesis": "Carbon pricing at $100/tonne drives optimal mitigation investment",
+        "elo_rating": 1530.0,
+        "wins": 1,
+        "losses": 0
+      },
+      {
+        "hypothesis_id": 1,
+        "hypothesis": "Renewable energy transition can reduce emissions by 70%",
+        "elo_rating": 1515.0,
+        "wins": 1,
+        "losses": 1
+      },
+      {
+        "hypothesis_id": 2,
+        "hypothesis": "Nature-based solutions provide 30% of mitigation",
+        "elo_rating": 1485.0,
+        "wins": 0,
+        "losses": 1
+      }
+    ]
+  }
+}

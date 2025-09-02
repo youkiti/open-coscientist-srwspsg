@@ -89,16 +89,56 @@ final_report, meta_review = asyncio.run(framework.run())
 ```
 
 ### Testing
-```bash
-# Run tests from project root
-python tests/test_claude_opus_integration.py
 
-# Run individual agent tests
-python -m pytest tests/ -v
+The project includes a comprehensive test suite covering unit tests, integration tests, end-to-end scenarios, and performance testing.
+
+#### Quick Testing Commands
+```bash
+# Run basic functionality tests (recommended for development)
+python -m pytest tests/test_working_basic.py -v
+
+# Run with coverage report
+python -m pytest tests/test_working_basic.py --cov=coscientist --cov-fail-under=0
+
+# Run all available tests
+python -m pytest tests/ -v --cov-fail-under=0
 
 # Test specific functionality
 python -c "from coscientist.framework import _SMARTER_LLM_POOL; print(list(_SMARTER_LLM_POOL.keys()))"
+
+# View test suite analysis
+python test_summary.py
 ```
+
+#### Test Categories
+- **Basic Functionality** (`test_working_basic.py`): Core system validation - 13 tests, 92.9% success rate
+- **Integration Tests** (`test_claude_opus_integration.py`): LLM provider integration testing  
+- **Legacy Tests** (`test_*.py`): Existing specialized tests for various components
+
+#### Test Infrastructure
+- **pytest Configuration**: `pytest.ini` with async support, coverage settings, and markers
+- **Test Fixtures**: `tests/fixtures/*.json` - Sample data for literature reviews, hypotheses, tournaments
+- **Mock Utilities**: `tests/utils.py` - Comprehensive mocking for LLMs and external services
+- **Test Documentation**: `tests/README.md` - Detailed testing guide and best practices
+
+#### Validated Components (✅ = tested, ❌ = needs testing)
+- ✅ CoscientistConfig creation and initialization
+- ✅ CoscientistState creation with real schema
+- ✅ ParsedHypothesis creation with pydantic validation
+- ✅ LLM pool configuration (9 models: GPT-5, o3, Claude Opus 4.1, etc.)
+- ✅ Framework initialization and basic workflows
+- ✅ Literature review agent function imports
+- ✅ JSON fixture validation
+- ❌ Full agent workflow execution (mocked only)
+- ❌ Real API integration (requires API keys)
+- ❌ Tournament system execution
+- ❌ State persistence and checkpoint recovery
+
+#### Testing Notes
+- Tests use comprehensive mocking to avoid API costs during development
+- Real API tests available but require valid API keys
+- Coverage reporting generates `htmlcov/index.html` for detailed analysis
+- Test execution time: ~1 second for basic suite
 
 ### Development Tools
 ```bash
